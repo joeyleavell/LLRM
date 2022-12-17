@@ -166,60 +166,20 @@ namespace llrm
 
 	struct PipelineState
 	{
-		/**
-		 * The shader program used for this pipeline.
-		 */
 		llrm::ShaderProgram Shader;
 
-		/**
-		 * A render graph compatible with this pipeline.
-		 */
 		RenderGraph CompatibleGraph;
-
-		/**
-		 * The swap chain to test compatibility with. If this is not NULL, CompatibleGraph will be ignored.
-		 */
-		SwapChain CompatibleSwapChain;
-
-		/**
-		 * The specification of resources that the shader will use.
-		 */
-		ResourceLayout Layout;
-
-		/**
-		 * The pass index within the render graph that this pipeline will be intended for.
-		 */
 		uint32_t PassIndex;
 
-		/**
-		 * The amount of bytes between each entry in the vertex buffer.
-		 */
+		ResourceLayout Layout;
+
+		// Vertex attributes <format, offset>
 		uint32_t VertexBufferStride;
+		std::vector<std::pair<VertexAttributeFormat, uint64_t>> VertexAttributes;
 
-		/**
-		 * The amount of vertex attributes that will be input to the vertex shader.
-		 */
-		uint32_t VertexAttributeCount;
-
-		/**
-		 * A description of each vertex attribute input to the vertex shader.
-		 */
-		VertexAttribute* VertexAttributes;
-
-		// The primitives this pipeline will render
+		// General pipeline state
 		PipelineRenderPrimitive Primitive = PipelineRenderPrimitive::TRIANGLES;
-
-		// The amount of blend settings in the array below
-		uint32_t BlendSettingCount = 0;
-
-		/**
-		 * Settings for blending the source color with the destination color. Commonly used for transparency and alpha blending.
-		 */
-		PipelineBlendSettings* BlendSettings = nullptr;
-
-		/*
-		 * Depth testing and stencil testing settings for this pipeline.
-		 */
+		std::vector<PipelineBlendSettings> BlendSettings;
 		PipelineDepthStencilSettings DepthStencil;
 	};
 

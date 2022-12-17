@@ -2842,15 +2842,14 @@ namespace llrm
 		BindingDescription.stride = CreateInfo->VertexBufferStride;
 		VertexBindings.push_back(BindingDescription);
 
-		for (uint32_t VertexIndex = 0; VertexIndex < CreateInfo->VertexAttributeCount; VertexIndex++)
+		uint32_t AttribIndex = 0;
+		for(auto& Attrib : CreateInfo->VertexAttributes)
 		{
-			VertexAttribute Attrib = CreateInfo->VertexAttributes[VertexIndex];
-
 			VkVertexInputAttributeDescription AttributeDescription{};
-			AttributeDescription.format = EngineFormatToVkFormat(Attrib.Format);
+			AttributeDescription.format = EngineFormatToVkFormat(Attrib.first);
 			AttributeDescription.binding = 0; // Always use one binding for vertex buffers
-			AttributeDescription.location = VertexIndex;
-			AttributeDescription.offset = Attrib.Offset;
+			AttributeDescription.location = AttribIndex++;
+			AttributeDescription.offset = Attrib.second;
 
 			VertexAttributes.push_back(AttributeDescription);
 		}
@@ -2930,10 +2929,8 @@ namespace llrm
 		Multisampling.pSampleMask = nullptr;
 
 		std::vector<VkPipelineColorBlendAttachmentState> ColorBlendAttachments;
-		for (uint32_t ColorBlendAttachmentIndex = 0; ColorBlendAttachmentIndex < CreateInfo->BlendSettingCount; ColorBlendAttachmentIndex++)
+		for(const PipelineBlendSettings& Settings : CreateInfo->BlendSettings)
 		{
-			PipelineBlendSettings& Settings = CreateInfo->BlendSettings[ColorBlendAttachmentIndex];
-
 			VkPipelineColorBlendAttachmentState ColorBlendAttachment{};
 			ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 			ColorBlendAttachment.blendEnable = Settings.bBlendingEnabled ? VK_TRUE : VK_FALSE;
@@ -2959,8 +2956,8 @@ namespace llrm
 		ColorBlending.blendConstants[3] = 0.0f; // Optional
 
 		VkDynamicState DynamicStates[] = {
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_SCISSOR
+			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_SCISSOR
 		};
 
 		VkPipelineDynamicStateCreateInfo DynamicState{};
