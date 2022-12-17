@@ -7,9 +7,10 @@ struct GLFWwindow;
 
 namespace llrm
 {
-	const uint64_t TEXTURE_USAGE_WRITE = 1 << 1; // We can upload data to this texture from the CPU
+	const uint64_t TEXTURE_USAGE_WRITE = 1 << 1; // We can upload data to this texture from the CPU, or transfer to this texture on the GPU
 	const uint64_t TEXTURE_USAGE_SAMPLE = 1 << 2; // We will sample this texture in a shader
 	const uint64_t TEXTURE_USAGE_RT = 1 << 3; // Used as a render target (color, depth, etc.)
+	const uint64_t TEXTURE_USAGE_READ = 1 << 3; // We can read from this texture on the CPU, or we can transfer from this texture on the GPU
 
 	// Rendering primitives
 	typedef void* Pipeline;
@@ -247,11 +248,13 @@ namespace llrm
 	struct ClearValue
 	{
 		ClearType Clear;
-		float FloatClearValue[4];// If the attachment uses floats, this will be used
-		int32_t   IntClearValue[4] = { 0, 0, 0, 0 }; // If the attachment uses ints, this will be used
-		uint32_t  UIntClearValue[4] = { 0, 0, 0, 0 }; // If the attachment uses uints, this will be used
-		float Depth = 0.0f;
-		uint32_t Stencil = 0;
+
+		union
+		{
+			float FloatClearValue[4]; // If the attachment uses floats, this will be used
+			int32_t   IntClearValue[4]; // If the attachment uses ints, this will be used
+			uint32_t  UIntClearValue[4] = { 0, 0, 0, 0 }; // If the attachment uses uints, this will be used
+		};
 	};
 
 	struct RenderGraphInfo
@@ -382,7 +385,7 @@ namespace llrm
 	void Begin(CommandBuffer Buf);
 	void End(CommandBuffer Buf);
 	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old, AttachmentUsage New);
-	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info = {});
+	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, std::vector<ClearValue> ClearValues = {});
 	void EndRenderGraph(CommandBuffer Buf);
 	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject);
 	void BindResources(CommandBuffer Buf, ResourceSet Resources);

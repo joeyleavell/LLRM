@@ -1220,9 +1220,9 @@ namespace llrm
 		});
 	}
 
-	void GetVkClearValues(ClearValue* ClearValues, uint32_t ValueCount, std::vector<VkClearValue>& OutVkValues)
+	void GetVkClearValues(std::vector<ClearValue> ClearValues, std::vector<VkClearValue>& OutVkValues)
 	{
-		for (uint32_t ClearValueIndex = 0; ClearValueIndex < ValueCount; ClearValueIndex++)
+		for (uint32_t ClearValueIndex = 0; ClearValueIndex < ClearValues.size(); ClearValueIndex++)
 		{
 			ClearValue& CV = ClearValues[ClearValueIndex];
 			VkClearValue ClearValue{};
@@ -1236,13 +1236,13 @@ namespace llrm
 			else if (CV.Clear == ClearType::UInt)
 				memcpy(ClearValue.color.uint32, CV.UIntClearValue, sizeof(CV.UIntClearValue));
 			else if (CV.Clear == ClearType::DepthStencil)
-				ClearValue.depthStencil = { CV.Depth, CV.Stencil };
+				ClearValue.depthStencil = { CV.FloatClearValue[0], CV.UIntClearValue[0]};
 
 			OutVkValues[ClearValueIndex] = ClearValue;
 		}
 	}
 	
-	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info)
+	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, std::vector<ClearValue> ClearValues)
 	{
 		VulkanRenderGraph* VkRg = static_cast<VulkanRenderGraph*>(Graph);
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Target);
@@ -1259,8 +1259,8 @@ namespace llrm
 			RpBeginInfo.renderArea.offset = { 0, 0 };
 			RpBeginInfo.renderArea.extent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight };
 
-			std::vector<VkClearValue> VkValues(Info.ClearValueCount);
-			GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
+			std::vector<VkClearValue> VkValues(ClearValues.size());
+			GetVkClearValues(ClearValues, VkValues);
 
 			RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
 			RpBeginInfo.pClearValues = VkValues.data();
@@ -2929,6 +2929,8 @@ namespace llrm
 			ImageCreate.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		if (Flags & TEXTURE_USAGE_SAMPLE)
 			ImageCreate.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+		if (Flags & TEXTURE_USAGE_READ)
+			ImageCreate.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
 		if(Flags & TEXTURE_USAGE_RT)
 		{

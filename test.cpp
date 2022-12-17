@@ -89,11 +89,36 @@ int main()
 		Graph
 	});
 
+	// Create vertex buffer
+	ShaderVertex Verts[3] = {
+		{-1.0f, -1.0f},
+		{0.0f, 1.0f},
+		{1.0f, -1.0f}
+	};
+	llrm::VertexBuffer Vbo = llrm::CreateVertexBuffer(sizeof(Verts), Verts);
+
+	// Create command buffer
+	llrm::CommandBuffer Buf = llrm::CreateCommandBuffer();
+	llrm::Begin(Buf);
+	{
+		llrm::BeginRenderGraph(Buf, Graph, Fbo, { {llrm::ClearType::Float, 0.0f, 0.0f, 0.0f, 1.0f} });
+		{
+			llrm::SetViewport(Buf, 0, 0, 800, 600);
+			llrm::SetScissor(Buf, 0, 0, 800, 600);
+
+			llrm::BindPipeline(Buf, Pipe);
+			llrm::DrawVertexBuffer(Buf, Vbo, 3);
+		}
+		llrm::EndRenderGraph(Buf);
+	}
+	llrm::End(Buf);
+
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 	}
 
+	llrm::DestroyVertexBuffer(Vbo);
 	llrm::DestroyFrameBuffer(Fbo);
 	llrm::DestroyTexture(ColorAttachment);
 	llrm::DestroyPipeline(Pipe);
