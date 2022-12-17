@@ -40,8 +40,6 @@
 #endif
 
 #define MAX_FRAMES_IN_FLIGHT 3
-const uint32_t MAX_SUBPASSES = 8;
-
 
 // Frame in flight
 struct VulkanFrame
@@ -892,32 +890,23 @@ namespace llrm
 		}
 	};
 
-	VkFormat AttachmentFormatToVkFormat(const SwapChain ReferencingSwap, AttachmentFormat Format)
+	VkFormat AttachmentFormatToVkFormat(AttachmentFormat Format)
 	{
 		//	assert((Format == AttachmentFormat::MatchBackBuffer && ReferencingSwap) || (Format != AttachmentFormat::MatchBackBuffer && !ReferencingSwap()));
 
 		switch (Format)
 		{
 		case AttachmentFormat::B8G8R8A8_SRGB:
-			assert(!ReferencingSwap);
 			return VK_FORMAT_B8G8R8A8_SRGB;
 		case AttachmentFormat::R32_UINT:
-			assert(!ReferencingSwap);
 			return VK_FORMAT_R32_UINT;
 		case AttachmentFormat::R32_FLOAT:
-			assert(!ReferencingSwap);
 			return VK_FORMAT_R32_SFLOAT;
 		case AttachmentFormat::R32_SINT:
-			assert(!ReferencingSwap);
 			return VK_FORMAT_R32_SINT;
 		case AttachmentFormat::R8_UINT:
-			assert(!ReferencingSwap);
 			return VK_FORMAT_R8_UINT;
-		case AttachmentFormat::MatchBackBuffer:
-			assert(ReferencingSwap);
-			if (const VulkanSwapChain* VkSwap = static_cast<const VulkanSwapChain*>(ReferencingSwap))
-				return VkSwap->ImageFormat;
-		case AttachmentFormat::DepthStencil:
+		case AttachmentFormat::D24_UNORM_S8_UINT:
 			VkFormat DepthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 			VkFormatProperties FormatProps;
 			vkGetPhysicalDeviceFormatProperties(GVulkanContext.PhysicalDevice, DepthStencilFormat, &FormatProps);
@@ -1027,7 +1016,7 @@ namespace llrm
 			const FramebufferAttachmentDescription& AttachDesc = Attachments[ColorAttachmentIndex];
 
 			// Use this function to ensure this and RenderGraph get the same color attachment format
-			VkFormat ColorAttachmentFormat = AttachmentFormatToVkFormat(nullptr, AttachDesc.Format);
+			VkFormat ColorAttachmentFormat = AttachmentFormatToVkFormat(AttachDesc.Format);
 
 			// Create image image memory
 			VkImageCreateInfo ColorAttachCreateInfo{};
@@ -1122,7 +1111,7 @@ namespace llrm
 			const FramebufferAttachmentDescription& AttachDesc = DstFbo->DepthStencilAttachmentDesc;
 
 			// Use this function to ensure this and RenderGraph get the same color attachment format
-			VkFormat DepthStencilAtachmentFormat = AttachmentFormatToVkFormat(nullptr, AttachmentFormat::DepthStencil);
+			VkFormat DepthStencilAtachmentFormat = AttachmentFormatToVkFormat(AttachmentFormat::D24_UNORM_S8_UINT);
 
 			// Create image memory
 			VkImageCreateInfo DepthStencilCreateInfo{};
@@ -2805,10 +2794,10 @@ namespace llrm
 		return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	}
 
-	Pipeline CreatePipeline(const PipelineState* CreateInfo)
+	Pipeline CreatePipeline(const PipelineState& CreateInfo)
 	{
-		VulkanShader* VkShader = static_cast<VulkanShader*>(CreateInfo->Shader);
-		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo->CompatibleGraph);
+		VulkanShader* VkShader = static_cast<VulkanShader*>(CreateInfo.Shader);
+		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo.CompatibleGraph);
 		if (!VkRenderGraph)
 		{
 			//GLog->critical("Must specify a valid Vulkan RenderGraph when creating a pipeline");
@@ -2839,11 +2828,11 @@ namespace llrm
 		VkVertexInputBindingDescription BindingDescription{};
 		BindingDescription.binding = 0;
 		BindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX; // Would probably need to change this for instanced rendering
-		BindingDescription.stride = CreateInfo->VertexBufferStride;
+		BindingDescription.stride = CreateInfo.VertexBufferStride;
 		VertexBindings.push_back(BindingDescription);
 
 		uint32_t AttribIndex = 0;
-		for(auto& Attrib : CreateInfo->VertexAttributes)
+		for(auto& Attrib : CreateInfo.VertexAttributes)
 		{
 			VkVertexInputAttributeDescription AttributeDescription{};
 			AttributeDescription.format = EngineFormatToVkFormat(Attrib.first);
@@ -2865,7 +2854,7 @@ namespace llrm
 		// Create input assembly
 		VkPipelineInputAssemblyStateCreateInfo InputAssembly{};
 		InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-		InputAssembly.topology = EngineTopToVkTop(CreateInfo->Primitive);
+		InputAssembly.topology = EngineTopToVkTop(CreateInfo.Primitive);
 		InputAssembly.primitiveRestartEnable = VK_FALSE; // Used for strip topologies
 
 		// VkViewport and VkScissor will always be dynamic to prevent needing to re-create the pipeline on swap chain re-creation
@@ -2912,7 +2901,7 @@ namespace llrm
 		DepthStencilCreateInfo.stencilTestEnable = VK_FALSE;
 		DepthStencilCreateInfo.front = {}; // Optional
 		DepthStencilCreateInfo.back = {}; // Optional
-		if (CreateInfo->DepthStencil.bEnableDepthTest)
+		if (CreateInfo.DepthStencil.bEnableDepthTest)
 		{
 			DepthStencilCreateInfo.depthTestEnable = VK_TRUE;
 			DepthStencilCreateInfo.depthWriteEnable = VK_TRUE;
@@ -2929,7 +2918,7 @@ namespace llrm
 		Multisampling.pSampleMask = nullptr;
 
 		std::vector<VkPipelineColorBlendAttachmentState> ColorBlendAttachments;
-		for(const PipelineBlendSettings& Settings : CreateInfo->BlendSettings)
+		for(const PipelineBlendSettings& Settings : CreateInfo.BlendSettings)
 		{
 			VkPipelineColorBlendAttachmentState ColorBlendAttachment{};
 			ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -2966,11 +2955,11 @@ namespace llrm
 		DynamicState.pDynamicStates = DynamicStates;
 
 		// Create pipeline layout
-		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo->Layout);
+		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo.Layout);
 
 		VkPipelineLayoutCreateInfo PipelineLayoutInfo{};
 		PipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		PipelineLayoutInfo.setLayoutCount = CreateInfo->Layout ? 1 : 0;
+		PipelineLayoutInfo.setLayoutCount = CreateInfo.Layout ? 1 : 0;
 		PipelineLayoutInfo.pSetLayouts = &VkLayout->VkLayout;
 		PipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 		PipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
@@ -2998,7 +2987,7 @@ namespace llrm
 		PipelineCreateInfo.pDynamicState = &DynamicState;
 		PipelineCreateInfo.layout = Result->PipelineLayout;
 		PipelineCreateInfo.renderPass = VkRenderGraph->RenderPass;
-		PipelineCreateInfo.subpass = CreateInfo->PassIndex;
+		PipelineCreateInfo.subpass = CreateInfo.PassIndex;
 		PipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 		PipelineCreateInfo.basePipelineIndex = -1;
 
@@ -3016,7 +3005,7 @@ namespace llrm
 		return Result;
 	}
 
-	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo)
+	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo& CreateInfo)
 	{
 		VulkanRenderGraph* Result = new VulkanRenderGraph;
 
@@ -3027,17 +3016,19 @@ namespace llrm
 			VkAttachmentReference DepthStencilAttachmentRef;
 		};
 
-		VkSubPassInfo SubPassInfos[MAX_SUBPASSES];
+		std::vector<VkSubPassInfo> SubPassInfos(CreateInfo.Passes.size());
 		std::vector<VkAttachmentDescription> AttachmentDescriptions;
 		std::vector<VkSubpassDescription> VkPassDescriptions;
 
-		// Create color attachment descriptions
-		for (uint32_t AttachmentIndex = 0; AttachmentIndex < CreateInfo->ColorAttachmentCount; AttachmentIndex++)
+		bool HasDepthAttachment = false;
+
+		// Create attachment descriptions
+		for (uint32_t AttachmentIndex = 0; AttachmentIndex < CreateInfo.Attachments.size(); AttachmentIndex++)
 		{
-			const RenderGraphAttachmentDescription& Description = CreateInfo->ColorAttachmentDescriptions[AttachmentIndex];
+			const RenderGraphAttachmentDescription& Description = CreateInfo.Attachments[AttachmentIndex];
 
 			VkAttachmentDescription VkAttachmentDesc{};
-			VkAttachmentDesc.format = AttachmentFormatToVkFormat(CreateInfo->SourceSwap, Description.Format);
+			VkAttachmentDesc.format = AttachmentFormatToVkFormat(Description.Format);
 			VkAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT; // Todo: msaa
 			VkAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			VkAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3047,60 +3038,46 @@ namespace llrm
 			VkAttachmentDesc.finalLayout = AttachmentUsageToVkLayout(Description.FinalUsage);
 
 			AttachmentDescriptions.push_back(VkAttachmentDesc);
-		}
 
-		// Create depth attachment description, if provided
-		if (CreateInfo->bHasDepthStencilAttachment)
-		{
-			VkAttachmentDescription VkDepthStencilAttachmentDesc{};
-			VkDepthStencilAttachmentDesc.format = AttachmentFormatToVkFormat(CreateInfo->SourceSwap, AttachmentFormat::DepthStencil);
-			VkDepthStencilAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-			VkDepthStencilAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			VkDepthStencilAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			VkDepthStencilAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			VkDepthStencilAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-			VkDepthStencilAttachmentDesc.initialLayout = AttachmentUsageToVkLayout(CreateInfo->DepthStencilAttachmentDescription.InitialUsage);
-			VkDepthStencilAttachmentDesc.finalLayout = AttachmentUsageToVkLayout(CreateInfo->DepthStencilAttachmentDescription.FinalUsage);
-
-			AttachmentDescriptions.push_back(VkDepthStencilAttachmentDesc);
+			if (IsDepthFormat(Description.Format))
+				HasDepthAttachment = true;
 		}
 
 		// Create subpasses
-		for (uint32_t SubpassIndex = 0; SubpassIndex < CreateInfo->PassCount; SubpassIndex++)
+		for (uint32_t SubpassIndex = 0; SubpassIndex < CreateInfo.Passes.size(); SubpassIndex++)
 		{
-			const RenderPassInfo& PassInfo = CreateInfo->Passes[SubpassIndex];
+			const RenderPassInfo& PassInfo = CreateInfo.Passes[SubpassIndex];
+			VkSubPassInfo& SubpassInfo = SubPassInfos[SubpassIndex];
 
 			VkSubpassDescription VkDescription{};
-			VkSubPassInfo& SubpassInfo = SubPassInfos[SubpassIndex];
 
 			VkDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // Always bind to graphics, unless Vulkan eventually supports compute subpasses
 
 			// Load attachment refs
-			for (uint32_t OutAttachRefIndex = 0; OutAttachRefIndex < PassInfo.OutputColorAttachmentCount; OutAttachRefIndex++)
-			{
-				int32_t AttachReference = PassInfo.OutputColorAttachments[OutAttachRefIndex];
-
-				VkAttachmentReference AttachRef{};
-				AttachRef.attachment = AttachReference;
-				AttachRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // Not sure we'd ever want this to change?
-
-				SubpassInfo.ColorAttachmentRefs.push_back(AttachRef);
-			}
-
-			if (PassInfo.bUsesDepthStencilAttachment)
+			bool UsesDepthStencil = false;
+			for(int32_t AttachRefIndex : PassInfo.OutputAttachments)
 			{
 				VkAttachmentReference AttachRef{};
-				AttachRef.attachment = CreateInfo->ColorAttachmentCount; // Depth attachment is always last attachment
-				AttachRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+				AttachRef.attachment = AttachRefIndex;
 
-				SubpassInfo.DepthStencilAttachmentRef = AttachRef;
+				if (IsColorFormat(CreateInfo.Attachments[AttachRefIndex].Format))
+				{
+					AttachRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+					SubpassInfo.ColorAttachmentRefs.push_back(AttachRef);
+				}
+				else // Depth
+				{
+					AttachRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+					SubpassInfo.DepthStencilAttachmentRef = AttachRef;
+					UsesDepthStencil = true;
+				}
 			}
 
 			VkDescription.colorAttachmentCount = static_cast<uint32_t>(SubpassInfo.ColorAttachmentRefs.size());
 			VkDescription.pColorAttachments = SubpassInfo.ColorAttachmentRefs.data();
 			VkDescription.inputAttachmentCount = 0; // TODO: eventually support these
 			VkDescription.pInputAttachments = nullptr;
-			VkDescription.pDepthStencilAttachment = PassInfo.bUsesDepthStencilAttachment ? &SubpassInfo.DepthStencilAttachmentRef : nullptr;
+			VkDescription.pDepthStencilAttachment = UsesDepthStencil ? &SubpassInfo.DepthStencilAttachmentRef : nullptr;
 			VkDescription.pPreserveAttachments = nullptr;
 			VkDescription.preserveAttachmentCount = 0;
 
@@ -3125,7 +3102,7 @@ namespace llrm
 		PostDep.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // Ensure next pass can read from fbo
 
 		// Add depth buffer dependencies
-		if (CreateInfo->bHasDepthStencilAttachment)
+		if (HasDepthAttachment)
 		{
 			PreviousDep.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			PreviousDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;

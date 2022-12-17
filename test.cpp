@@ -51,11 +51,24 @@ int main()
 	if (!CreateShaders())
 		return 2;
 
+	// Create render graph
+	llrm::RenderGraph Graph = llrm::CreateRenderGraph({
+		{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::TransferSource, llrm::AttachmentFormat::B8G8R8A8_SRGB}},
+		{{{0}}}
+	});
+
+	// Create pipeline state
+	/*llrm::Pipeline Pipe = llrm::CreatePipeline({
+		ExampleShader,
+
+	});*/
+
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 	}
 
+	llrm::DestroyRenderGraph(Graph);
 	llrm::DestroyProgram(ExampleShader);
 	llrm::DestroySurface(Surface);
 	llrm::DestroyContext(Context);

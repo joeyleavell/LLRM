@@ -26,13 +26,12 @@ namespace llrm
 
 	enum class AttachmentFormat
 	{
-		MatchBackBuffer, /* Match the format of the back-buffer */
 		B8G8R8A8_SRGB,
 		R32_UINT,
 		R32_SINT,
 		R32_FLOAT,
 		R8_UINT,
-		DepthStencil
+		D24_UNORM_S8_UINT
 	};
 
 	enum class AttachmentUsage
@@ -175,7 +174,7 @@ namespace llrm
 
 		// Vertex attributes <format, offset>
 		uint32_t VertexBufferStride;
-		std::vector<std::pair<VertexAttributeFormat, uint64_t>> VertexAttributes;
+		std::vector<std::pair<VertexAttributeFormat, uint32_t>> VertexAttributes;
 
 		// General pipeline state
 		PipelineRenderPrimitive Primitive = PipelineRenderPrimitive::TRIANGLES;
@@ -188,42 +187,18 @@ namespace llrm
 		AttachmentUsage InitialUsage;
 		AttachmentUsage FinalUsage;
 		AttachmentFormat Format;
-
-		RenderGraphAttachmentDescription():
-		InitialUsage(AttachmentUsage::Undefined),
-		FinalUsage(AttachmentUsage::Undefined),
-		Format(AttachmentFormat::B8G8R8A8_SRGB)
-		{}
-	    
-		RenderGraphAttachmentDescription(AttachmentUsage InInitialUsage, AttachmentUsage InFinalUsage, AttachmentFormat InFormat):
-		InitialUsage(InInitialUsage),
-		FinalUsage(InFinalUsage),
-		Format(InFormat)
-		{}
 	};
 
 	struct RenderPassInfo
 	{
-		uint32_t OutputColorAttachmentCount = 0;
-		int32_t* OutputColorAttachments = nullptr;
-		bool	 bUsesDepthStencilAttachment = false;
-
-		RenderPassInfo(uint32_t OutColorAttachCount, int32_t* OutColorAttachments, bool bUsesDepthStencil):
-		OutputColorAttachmentCount(OutColorAttachCount),
-		OutputColorAttachments(OutColorAttachments),
-		bUsesDepthStencilAttachment(bUsesDepthStencil){}
+		std::vector<int32_t> OutputAttachments{};
 	};
 
 	// The depth stencil attachment is always at index ColorAttachmentCount since it's placed at the end
 	struct RenderGraphCreateInfo
 	{
-		uint32_t						  ColorAttachmentCount = 1;
-		RenderGraphAttachmentDescription* ColorAttachmentDescriptions;
-		bool							  bHasDepthStencilAttachment = false;
-		RenderGraphAttachmentDescription  DepthStencilAttachmentDescription;
-		uint32_t						  PassCount;
-		RenderPassInfo*					  Passes;
-		SwapChain						  SourceSwap; 	// The source swap chain. If specified, the attachments will target the color/depth formats of the swap chain. This is necessary if the swap chain frame-buffer is the intended destination.
+		std::vector<RenderGraphAttachmentDescription> Attachments;
+		std::vector<RenderPassInfo> Passes;
 
 		// TODO: Subpass dependencies?
 	};
@@ -299,6 +274,15 @@ namespace llrm
 		ResourceLayout Layout;
 	};
 
+	inline bool IsDepthFormat(AttachmentFormat Format)
+	{
+		return Format == AttachmentFormat::D24_UNORM_S8_UINT;
+	}
+
+	inline bool IsColorFormat(AttachmentFormat Format)
+	{
+		return !IsDepthFormat(Format);
+	}
 
 	// An opaque pointer to a context type
 	typedef void* Context;
@@ -347,8 +331,8 @@ namespace llrm
 	ShaderProgram CreateRasterProgram(const std::vector<uint32_t>& VertexShader, const std::vector<uint32_t>& FragmentShader);
 	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth, int32_t DesiredHeight);
 	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo);
-	Pipeline CreatePipeline(const PipelineState* CreateInfo);
-	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo);
+	Pipeline CreatePipeline(const PipelineState& CreateInfo);
+	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo& CreateInfo);
 	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo);
 	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
 	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data = nullptr);
