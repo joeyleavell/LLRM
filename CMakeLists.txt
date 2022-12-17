@@ -33,10 +33,10 @@ add_library (${LLRM_TARGET})
 FetchContent_MakeAvailable(VulkanHeaders vulkan glfw)
 
 target_compile_features(${LLRM_TARGET} PUBLIC cxx_std_20)
-target_link_libraries(${LLRM_TARGET} PRIVATE glfw)
+target_link_libraries(${LLRM_TARGET} PUBLIC glfw)
 
 if(LLRM_BUILD_VULKAN)
-    target_compile_definitions(${LLRM_TARGET} PRIVATE LLRM_VULKAN)
+    target_compile_definitions(${LLRM_TARGET} PUBLIC LLRM_VULKAN)
     if(LLRM_VULKAN_VALIDATION)
         target_compile_definitions(${LLRM_TARGET} PRIVATE LLRM_VULKAN_VALIDATION)
     endif()
@@ -49,10 +49,20 @@ if(LLRM_BUILD_VULKAN)
 endif()
 
 if(LLRM_BUILD_TEST)
-    add_executable (${LLRM_TEST_TARGET} "test.cpp")
-    target_compile_features(${LLRM_TEST_TARGET} PUBLIC cxx_std_20)
-    target_link_libraries(${LLRM_TEST_TARGET} PRIVATE glfw)
+    FetchContent_Declare(
+      glslang
+      GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+      GIT_TAG        11.13.0
+    )
+    FetchContent_MakeAvailable(glslang)
+
+    add_executable (${LLRM_TEST_TARGET} "test.cpp" "shadercompile.h" "shadercompile.cpp")
+    target_link_libraries(${LLRM_TEST_TARGET} PRIVATE glslang)
+    target_link_libraries(${LLRM_TEST_TARGET} PRIVATE SPIRV)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE ${LLRM_TARGET})
+
+    install(TARGETS ${LLRM_TEST_TARGET})
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Shaders DESTINATION .)
 endif()
 
 target_sources(${LLRM_TARGET} PRIVATE
@@ -60,5 +70,4 @@ target_sources(${LLRM_TARGET} PRIVATE
 
     PUBLIC FILE_SET HEADERS TYPE HEADERS FILES
     "llrm.h"
-     
 )

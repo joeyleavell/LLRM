@@ -68,11 +68,7 @@ struct VulkanSwapChain
 	VkImage* Images;
 	std::vector<VkImageView> ImageViews;
 
-	VkRenderPass MainPass;
-
 	int32_t CurrentFrame = 0;
-
-	std::vector<VkFramebuffer> FrameBuffers;
 
 	std::vector<VkCommandBuffer> BuffersToSubmit;
 
@@ -1536,33 +1532,7 @@ namespace llrm
 			OutVkValues[ClearValueIndex] = ClearValue;
 		}
 	}
-
-	void BeginRenderGraph(CommandBuffer Buf, SwapChain Target, RenderGraphInfo Info)
-	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
-		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
-
-		VkCmd->CurrentSwapChain = VkSwap;
-
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-		{
-			VkRenderPassBeginInfo RpBeginInfo{};
-			RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			RpBeginInfo.renderPass = VkSwap->MainPass;
-			RpBeginInfo.framebuffer = VkSwap->FrameBuffers[ImageIndex]; // This means the cmd buffer needs to be re-created when the swap chain gets recreated
-			RpBeginInfo.renderArea.offset = { 0, 0 };
-			RpBeginInfo.renderArea.extent = VkSwap->SwapChainExtent;
-
-			std::vector<VkClearValue> VkValues(Info.ClearValueCount);
-			GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
-
-			RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
-			RpBeginInfo.pClearValues = VkValues.data();
-
-			vkCmdBeginRenderPass(CmdBuffer, &RpBeginInfo, VK_SUBPASS_CONTENTS_INLINE); // This would need to be changed for secondary command buffers
-		});
-	}
-
+	
 	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info)
 	{
 		VulkanRenderGraph* VkRg = static_cast<VulkanRenderGraph*>(Graph);
@@ -1734,9 +1704,42 @@ namespace llrm
 		return true;
 	}
 
-	ShaderProgram CreateRasterProgram(const std::vector<char>& VertShader, const std::vector<char>& FragShader)
+	ShaderProgram CreateRasterProgram(const std::vector<uint32_t>& VertShader, const std::vector<uint32_t>& FragShader)
 	{
-		return nullptr;
+		VulkanShader* Result = new VulkanShader;
+
+		std::vector<VkShaderModule> ShaderModules;
+
+		// Create vertex shader
+		if (!CreateShaderModule(VertShader, Result->VertexModule))
+		{
+			//GLog->critical("Failed to create shader module");
+
+			delete Result;
+			return nullptr;
+		}
+		else
+		{
+			ShaderModules.push_back(Result->VertexModule);
+			Result->bHasVertexShader = true;
+		}
+
+		// Create fragment shader
+		if (!CreateShaderModule(FragShader, Result->FragmentModule))
+		{
+			//GLog->critical("Failed to create shader module");
+
+			delete Result;
+			return nullptr;
+		}
+		else
+		{
+			ShaderModules.push_back(Result->FragmentModule);
+			Result->bHasFragmentShader = true;
+		}
+
+		RECORD_RESOURCE_ALLOC(Result);
+		return Result;
 	}
 
 	/*ShaderProgram CreateShader(const ShaderCreateInfo* ProgramData)
@@ -1975,7 +1978,6 @@ namespace llrm
 
 		// Create image views for swap chain
 		Dst->ImageViews.resize(Dst->ImageCount);
-		Dst->FrameBuffers.resize(Dst->ImageCount);
 
 		for (uint32_t ImageIndex = 0; ImageIndex < Dst->ImageCount; ImageIndex++)
 		{
@@ -2006,71 +2008,6 @@ namespace llrm
 		return true;
 	}
 
-	bool CreateVkSwapChainRenderPass(VulkanSwapChain* Dst)
-	{
-		// Create default render pass
-		VkAttachmentDescription ColorAttachDesc{};
-		ColorAttachDesc.format = Dst->ImageFormat;
-		ColorAttachDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-		ColorAttachDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		ColorAttachDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		ColorAttachDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		ColorAttachDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		ColorAttachDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		ColorAttachDesc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-		VkAttachmentReference ColorAttachRef{};
-		ColorAttachRef.attachment = 0;
-		ColorAttachRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-		// TODO: Add a depth attachment if needed
-
-		VkSubpassDescription MainPass{};
-		MainPass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		MainPass.colorAttachmentCount = 1;
-		MainPass.pColorAttachments = &ColorAttachRef;
-
-		VkRenderPassCreateInfo RpCreateInfo{};
-		RpCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		RpCreateInfo.attachmentCount = 1;
-		RpCreateInfo.pAttachments = &ColorAttachDesc;
-		RpCreateInfo.subpassCount = 1;
-		RpCreateInfo.pSubpasses = &MainPass;
-
-		// Create main render pass
-		if (vkCreateRenderPass(GVulkanContext.Device, &RpCreateInfo, nullptr, &Dst->MainPass) != VK_SUCCESS)
-		{
-			//GLog->critical("Failed to create main render pass");
-			return false;
-		}
-
-		return true;
-	}
-
-	bool CreateVkSwapChainFrameBuffers(VulkanSwapChain* Dst)
-	{
-		// Create framebuffers for the render pass and image views
-		for (uint32_t SwapFrameBuffer = 0; SwapFrameBuffer < Dst->ImageCount; SwapFrameBuffer++)
-		{
-			VkFramebufferCreateInfo FramebufferCreateInfo{};
-			FramebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			FramebufferCreateInfo.renderPass = Dst->MainPass;
-			FramebufferCreateInfo.attachmentCount = 1;
-			FramebufferCreateInfo.pAttachments = &Dst->ImageViews[SwapFrameBuffer]; // Attachment is the nth image view
-			FramebufferCreateInfo.width = Dst->SwapChainExtent.width;
-			FramebufferCreateInfo.height = Dst->SwapChainExtent.height;
-			FramebufferCreateInfo.layers = 1;
-
-			if (vkCreateFramebuffer(GVulkanContext.Device, &FramebufferCreateInfo, nullptr, &Dst->FrameBuffers[SwapFrameBuffer]) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create framebuffer for swap chain");
-				return false;
-			}
-		}
-
-		return true;
-	}
-
 	void DestroyVkSwapChain(VulkanSwapChain* VkSwap)
 	{
 		vkDestroySwapchainKHR(GVulkanContext.Device, VkSwap->SwapChain, nullptr);
@@ -2088,21 +2025,6 @@ namespace llrm
 		}
 	}
 
-	void DestroyVkSwapChainFramebuffers(VulkanSwapChain* VkSwap)
-	{
-		// Clean up framebuffers and image views
-		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->ImageCount; SwapChainImage++)
-		{
-			vkDestroyFramebuffer(GVulkanContext.Device, VkSwap->FrameBuffers[SwapChainImage], nullptr);
-		}
-	}
-
-	void DestroyVkSwapChainRenderPass(VulkanSwapChain* VkSwap)
-	{
-		// Destroy render pass
-		vkDestroyRenderPass(GVulkanContext.Device, VkSwap->MainPass, nullptr);
-	}
-
 	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth,
 		int32_t DesiredHeight)
 	{
@@ -2115,16 +2037,6 @@ namespace llrm
 		}
 
 		if (!CreateVkSwapChainImageViews(Result))
-		{
-			return nullptr;
-		}
-
-		if (!CreateVkSwapChainRenderPass(Result))
-		{
-			return nullptr;
-		}
-
-		if (!CreateVkSwapChainFrameBuffers(Result))
 		{
 			return nullptr;
 		}
@@ -2174,8 +2086,6 @@ namespace llrm
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 
 		// Destroy volatile swap chain resources
-		DestroyVkSwapChainFramebuffers(VkSwap);
-		DestroyVkSwapChainRenderPass(VkSwap);
 		DestroyVkSwapChainImageViews(VkSwap);
 		DestroyVkSwapChain(VkSwap);
 
@@ -2264,6 +2174,7 @@ namespace llrm
 
 		VkSwap->bInsideFrame = false;
 
+		// Detect minimization
 		if (FrameWidth == 0 || FrameHeight == 0)
 		{
 			vkDeviceWaitIdle(GVulkanContext.Device);
@@ -2330,15 +2241,11 @@ namespace llrm
 		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		// Re-create the needed resources
-		DestroyVkSwapChainFramebuffers(VkSwap);
-		DestroyVkSwapChainRenderPass(VkSwap);
 		DestroyVkSwapChainImageViews(VkSwap);
 		DestroyVkSwapChain(VkSwap);
 
 		CreateVkSwapChain(VkSwap, Target, DesiredWidth, DesiredHeight);
 		CreateVkSwapChainImageViews(VkSwap);
-		CreateVkSwapChainRenderPass(VkSwap);
-		CreateVkSwapChainFrameBuffers(VkSwap);
 	}
 
 	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height)
@@ -2376,8 +2283,7 @@ namespace llrm
 		VkFbo->AttachmentHeight = NewHeight;
 	}
 
-	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex,
-		void* Data, uint64_t DataSize)
+	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
@@ -2899,14 +2805,13 @@ namespace llrm
 		return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	}
 
-	Pipeline CreatePipeline(const PipelineCreateInfo* CreateInfo)
+	Pipeline CreatePipeline(const PipelineState* CreateInfo)
 	{
 		VulkanShader* VkShader = static_cast<VulkanShader*>(CreateInfo->Shader);
 		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo->CompatibleGraph);
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo->CompatibleSwapChain);
-		if (!VkSwap && !VkRenderGraph)
+		if (!VkRenderGraph)
 		{
-			//GLog->critical("Must specify either a valid Vulkan RenderGraph or SwapChain when creating a pipeline");
+			//GLog->critical("Must specify a valid Vulkan RenderGraph when creating a pipeline");
 			return nullptr;
 		}
 
@@ -3095,7 +3000,7 @@ namespace llrm
 		PipelineCreateInfo.pColorBlendState = &ColorBlending;
 		PipelineCreateInfo.pDynamicState = &DynamicState;
 		PipelineCreateInfo.layout = Result->PipelineLayout;
-		PipelineCreateInfo.renderPass = VkRenderGraph ? VkRenderGraph->RenderPass : VkSwap->MainPass;
+		PipelineCreateInfo.renderPass = VkRenderGraph->RenderPass;
 		PipelineCreateInfo.subpass = CreateInfo->PassIndex;
 		PipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 		PipelineCreateInfo.basePipelineIndex = -1;

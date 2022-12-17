@@ -164,7 +164,7 @@ namespace llrm
 		bool bEnableDepthTest = false;
 	};
 
-	struct PipelineCreateInfo
+	struct PipelineState
 	{
 		/**
 		 * The shader program used for this pipeline.
@@ -177,14 +177,14 @@ namespace llrm
 		RenderGraph CompatibleGraph;
 
 		/**
-		 * The specification of resources that the shader will use.
-		 */
-		ResourceLayout Layout;
-
-		/**
 		 * The swap chain to test compatibility with. If this is not NULL, CompatibleGraph will be ignored.
 		 */
 		SwapChain CompatibleSwapChain;
+
+		/**
+		 * The specification of resources that the shader will use.
+		 */
+		ResourceLayout Layout;
 
 		/**
 		 * The pass index within the render graph that this pipeline will be intended for.
@@ -384,10 +384,10 @@ namespace llrm
 	}
 
 	// Create primitives
-	ShaderProgram CreateRasterProgram(const std::vector<char>& VertexShader, const std::vector<char>& FragmentShader);
+	ShaderProgram CreateRasterProgram(const std::vector<uint32_t>& VertexShader, const std::vector<uint32_t>& FragmentShader);
 	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth, int32_t DesiredHeight);
 	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo);
-	Pipeline CreatePipeline(const PipelineCreateInfo* CreateInfo);
+	Pipeline CreatePipeline(const PipelineState* CreateInfo);
 	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo);
 	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo);
 	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
@@ -418,8 +418,8 @@ namespace llrm
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height);
 
 	// Vertex buffer operations
-	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size) ;
-	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size) ;
+	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size);
+	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size);
 	void ResizeVertexBuffer(VertexBuffer Buffer, uint64_t NewSize);
 	void ResizeIndexBuffer(IndexBuffer Buffer, uint64_t NewSize);
 
@@ -446,7 +446,6 @@ namespace llrm
 	void TransitionFrameBufferColorAttachment(CommandBuffer Buf, FrameBuffer Source, uint32_t AttachmentIndex, AttachmentUsage Old, AttachmentUsage New);
 	void TransitionFrameBufferDepthStencilAttachment(CommandBuffer Buf, FrameBuffer Source, AttachmentUsage Old, AttachmentUsage New);
 	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old, AttachmentUsage New);
-	void BeginRenderGraph(CommandBuffer Buf, SwapChain Target, RenderGraphInfo Info = {});
 	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info = {});
 	void EndRenderGraph(CommandBuffer Buf);
 	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject);

@@ -1,7 +1,25 @@
 #include <iostream>
 
 #include "llrm.h"
+#include "shadercompile.h"
 #include "GLFW/glfw3.h"
+
+llrm::ShaderProgram ExampleShader{};
+
+bool CreateShaders()
+{
+	InitShaderCompilation();
+
+	ShaderCompileResult Result;
+	if(CompileShader("Example.vert", "Example.frag", Result))
+	{
+		ExampleShader = llrm::CreateRasterProgram(Result.OutVertShader, Result.OutFragShader);
+	}
+
+	FinishShaderCompilation();
+
+	return ExampleShader != nullptr;
+}
 
 int main()
 {
@@ -30,11 +48,15 @@ int main()
 		return 1;
 	}
 
+	if (!CreateShaders())
+		return 2;
+
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 	}
 
+	llrm::DestroyProgram(ExampleShader);
 	llrm::DestroySurface(Surface);
 	llrm::DestroyContext(Context);
 
