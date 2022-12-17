@@ -90,10 +90,10 @@ namespace llrm
 
 	struct ConstantBufferDescription
 	{
-		uint32_t Binding;
-		uint32_t Count;
-		llrm::ShaderStage StageUsedAt;
-		uint64_t BufferSize;
+		uint32_t Binding = 0;
+		llrm::ShaderStage StageUsedAt = ShaderStage::Vertex;
+		uint64_t BufferSize = 0;
+		uint32_t Count = 1;
 	};
 
 	struct TextureDescription
@@ -105,11 +105,8 @@ namespace llrm
 
 	struct ResourceLayoutCreateInfo
 	{
-		uint32_t ConstantBufferCount = 0;
-		ConstantBufferDescription* ConstantBuffers = nullptr;
-
-		uint32_t TextureCount = 0;
-		TextureDescription* Textures = nullptr;
+		std::vector<ConstantBufferDescription> ConstantBuffers{};
+		std::vector<TextureDescription> Textures{};
 	};
 
 	enum class BlendOperation
@@ -168,7 +165,6 @@ namespace llrm
 		llrm::ShaderProgram Shader;
 
 		RenderGraph CompatibleGraph;
-		uint32_t PassIndex;
 
 		ResourceLayout Layout;
 
@@ -180,6 +176,8 @@ namespace llrm
 		PipelineRenderPrimitive Primitive = PipelineRenderPrimitive::TRIANGLES;
 		std::vector<PipelineBlendSettings> BlendSettings;
 		PipelineDepthStencilSettings DepthStencil;
+
+		uint32_t PassIndex = 0;
 	};
 
 	struct RenderGraphAttachmentDescription
@@ -330,7 +328,7 @@ namespace llrm
 	// Create primitives
 	ShaderProgram CreateRasterProgram(const std::vector<uint32_t>& VertexShader, const std::vector<uint32_t>& FragmentShader);
 	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth, int32_t DesiredHeight);
-	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo);
+	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo& CreateInfo);
 	Pipeline CreatePipeline(const PipelineState& CreateInfo);
 	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo& CreateInfo);
 	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo);

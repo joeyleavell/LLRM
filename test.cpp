@@ -21,6 +21,11 @@ bool CreateShaders()
 	return ExampleShader != nullptr;
 }
 
+struct ShaderVertex
+{
+	float Position[2];
+};
+
 int main()
 {
 	// Init glfw
@@ -57,17 +62,32 @@ int main()
 		{{{0}}}
 	});
 
-	// Create pipeline state
-	/*llrm::Pipeline Pipe = llrm::CreatePipeline({
-		ExampleShader,
+	// Create resource layout
+	llrm::ResourceLayout ResourceLayout = llrm::CreateResourceLayout({
+		{},
+		{}
+	});
 
-	});*/
+	// Create pipeline state
+	llrm::Pipeline Pipe = llrm::CreatePipeline({
+		ExampleShader,
+		Graph,
+		ResourceLayout,
+		sizeof(ShaderVertex),
+		{std::make_pair(llrm::VertexAttributeFormat::Float2, offsetof(ShaderVertex, Position))},
+		llrm::PipelineRenderPrimitive::TRIANGLES,
+		{{false}},
+		{{false}},
+		0
+	});
 
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 	}
 
+	llrm::DestroyPipeline(Pipe);
+	llrm::DestroyResourceLayout(ResourceLayout);
 	llrm::DestroyRenderGraph(Graph);
 	llrm::DestroyProgram(ExampleShader);
 	llrm::DestroySurface(Surface);

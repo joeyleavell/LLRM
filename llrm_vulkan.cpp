@@ -2667,39 +2667,39 @@ namespace llrm
 		return VK_SHADER_STAGE_VERTEX_BIT;
 	}
 
-	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo)
+	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo& CreateInfo)
 	{
 		VulkanResourceLayout* Result = new VulkanResourceLayout;
 
 		std::vector<VkDescriptorSetLayoutBinding> LayoutBindings;
-		for (uint32_t LayoutBindingIndex = 0; LayoutBindingIndex < CreateInfo->ConstantBufferCount; LayoutBindingIndex++)
+		for (uint32_t LayoutBindingIndex = 0; LayoutBindingIndex < CreateInfo.ConstantBuffers.size(); LayoutBindingIndex++)
 		{
 			VkDescriptorSetLayoutBinding LayoutBinding{};
-			LayoutBinding.binding = CreateInfo->ConstantBuffers[LayoutBindingIndex].Binding;
-			LayoutBinding.descriptorCount = CreateInfo->ConstantBuffers[LayoutBindingIndex].Count;
+			LayoutBinding.binding = CreateInfo.ConstantBuffers[LayoutBindingIndex].Binding;
+			LayoutBinding.descriptorCount = CreateInfo.ConstantBuffers[LayoutBindingIndex].Count;
 			LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			LayoutBinding.pImmutableSamplers = nullptr;
-			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo->ConstantBuffers[LayoutBindingIndex].StageUsedAt);
+			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo.ConstantBuffers[LayoutBindingIndex].StageUsedAt);
 
 			LayoutBindings.push_back(LayoutBinding);
 
 			// Persist constant buffers
-			Result->ConstantBuffers.push_back(CreateInfo->ConstantBuffers[LayoutBindingIndex]);
+			Result->ConstantBuffers.push_back(CreateInfo.ConstantBuffers[LayoutBindingIndex]);
 		}
 
-		for (uint32_t TexBindingIndex = 0; TexBindingIndex < CreateInfo->TextureCount; TexBindingIndex++)
+		for (uint32_t TexBindingIndex = 0; TexBindingIndex < CreateInfo.Textures.size(); TexBindingIndex++)
 		{
 			VkDescriptorSetLayoutBinding LayoutBinding{};
-			LayoutBinding.binding = CreateInfo->Textures[TexBindingIndex].Binding;
-			LayoutBinding.descriptorCount = CreateInfo->Textures[TexBindingIndex].Count;
+			LayoutBinding.binding = CreateInfo.Textures[TexBindingIndex].Binding;
+			LayoutBinding.descriptorCount = CreateInfo.Textures[TexBindingIndex].Count;
 			LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			LayoutBinding.pImmutableSamplers = nullptr;
-			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo->Textures[TexBindingIndex].StageUsedAt);
+			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo.Textures[TexBindingIndex].StageUsedAt);
 
 			LayoutBindings.push_back(LayoutBinding);
 
 			// Persist constant buffers
-			Result->TextureBindings.push_back(CreateInfo->Textures[TexBindingIndex]);
+			Result->TextureBindings.push_back(CreateInfo.Textures[TexBindingIndex]);
 		}
 
 		VkDescriptorSetLayoutCreateInfo LayoutCreateInfo{};
