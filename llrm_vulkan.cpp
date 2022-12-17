@@ -1736,6 +1736,11 @@ namespace llrm
 		return true;
 	}
 
+	ShaderProgram CreateRasterProgram(const std::vector<char>& VertShader, const std::vector<char>& FragShader)
+	{
+		return nullptr;
+	}
+
 	/*ShaderProgram CreateShader(const ShaderCreateInfo* ProgramData)
 	{
 		// Get the Spv data
@@ -3741,7 +3746,7 @@ namespace llrm
 		delete VkPipeline;
 	}
 
-	void DestroyShader(ShaderProgram Shader)
+	void DestroyProgram(ShaderProgram Shader)
 	{
 		VulkanShader* VkShader = static_cast<VulkanShader*>(Shader);
 
