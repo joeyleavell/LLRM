@@ -14,6 +14,7 @@ namespace llrm
 	typedef void* RenderGraph;
 	typedef void* FrameBuffer;
 	typedef void* VertexBuffer;
+	typedef void* IndexBuffer;
 	typedef void* ShaderProgram;
 	typedef void* CommandBuffer;
 	typedef void* Fence;
@@ -332,14 +333,6 @@ namespace llrm
 		ClearValue ClearValues[MAX_OUTPUT_COLORS] = { ClearValue {}};
 	};
 
-	struct VertexBufferCreateInfo
-	{
-		uint64_t VertexBufferSize;
-		uint64_t IndexBufferSize;
-		BufferUsage Usage;
-		bool bCreateIndexBuffer;
-	};
-
 	struct ResourceSetCreateInfo
 	{
 		SwapChain TargetSwap;
@@ -397,7 +390,8 @@ namespace llrm
 	Pipeline CreatePipeline(const PipelineCreateInfo* CreateInfo);
 	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo);
 	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo);
-	VertexBuffer CreateVertexBuffer(VertexBufferCreateInfo* CreateInfo);
+	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
+	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data = nullptr);
 	CommandBuffer CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo);
@@ -405,6 +399,7 @@ namespace llrm
 
 	// Destroy primitives
 	void DestroyVertexBuffer(VertexBuffer VertexBuffer);
+	void DestroyIndexBuffer(IndexBuffer IndexBuffer);
 	void DestroyRenderGraph(RenderGraph Graph);
 	void DestroyPipeline(Pipeline Pipeline);
 	void DestroyResourceLayout(ResourceLayout Layout);
@@ -424,9 +419,9 @@ namespace llrm
 
 	// Vertex buffer operations
 	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size) ;
-	void UploadIndexBufferData(VertexBuffer Buffer, uint32_t* Data, uint64_t Size) ;
+	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size) ;
 	void ResizeVertexBuffer(VertexBuffer Buffer, uint64_t NewSize);
-	void ResizeIndexBuffer(VertexBuffer Buffer, uint64_t NewSize);
+	void ResizeIndexBuffer(IndexBuffer Buffer, uint64_t NewSize);
 
 	// Frame buffer operations
 	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height) ;
@@ -457,7 +452,7 @@ namespace llrm
 	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject);
 	void BindResources(CommandBuffer Buf, ResourceSet Resources);
 	void DrawVertexBuffer(CommandBuffer Buf, VertexBuffer Vbo, uint32_t VertexCount) ;
-	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, uint32_t IndexCount) ;
+	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, IndexBuffer Ibo, uint32_t IndexCount) ;
 	void SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H);
 	void SetScissor(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H);
 

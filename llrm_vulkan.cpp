@@ -188,22 +188,25 @@ struct VulkanRenderGraph
 struct VulkanVertexBuffer
 {
 	VkBuffer DeviceVertexBuffer;
-	VkBuffer StagingVertexBuffer;
-	VkBuffer DeviceIndexBuffer;
-	VkBuffer StagingIndexBuffer;
-
 	VkDeviceMemory DeviceVertexBufferMemory;
+
+	VkBuffer StagingVertexBuffer;
 	VkDeviceMemory StagingVertexBufferMemory;
-	VkDeviceMemory DeviceIndexBufferMemory;
-	VkDeviceMemory StagingIndexBufferMemory;
 
 	VkCommandBuffer VertexStagingCommandBuffer;
-	VkCommandBuffer IndexStagingCommandBuffer;
-
 	VkFence VertexStagingCompleteFence;
-	VkFence IndexStagingCompleteFence;
+};
 
-	bool bHasIndexBuffer = false;
+struct VulkanIndexBuffer
+{
+	VkBuffer DeviceIndexBuffer;
+	VkDeviceMemory DeviceIndexBufferMemory;
+
+	VkBuffer StagingIndexBuffer;
+	VkDeviceMemory StagingIndexBufferMemory;
+
+	VkCommandBuffer IndexStagingCommandBuffer;
+	VkFence IndexStagingCompleteFence;
 };
 
 struct VulkanFrameBuffer
@@ -1656,15 +1659,10 @@ namespace llrm
 		});
 	}
 
-	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, uint32_t IndexCount)
+	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, IndexBuffer Ibo, uint32_t IndexCount)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Vbo);
-
-		if (!VulkanVbo->bHasIndexBuffer)
-		{
-			//GLog->error("Vulkan vertex buffer was not created with an index buffer, can't draw indexed vertex buffer");
-			return;
-		}
+		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(Ibo);
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
 		{
@@ -1679,7 +1677,7 @@ namespace llrm
 			vkCmdBindVertexBuffers(CmdBuffer, 0, 1, VertexBuffers, Offsets);
 
 			// Bind the index buffer (force uint32)
-			vkCmdBindIndexBuffer(CmdBuffer, VulkanVbo->DeviceIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(CmdBuffer, VulkanIbo->DeviceIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 			// Draw indexed vertex buffer
 			vkCmdDrawIndexed(CmdBuffer, IndexCount, 1, 0, 0, 0);
@@ -2629,20 +2627,14 @@ namespace llrm
 
 	}
 
-	void UploadIndexBufferData(VertexBuffer Buffer, uint32_t* Data, uint64_t Size)
+	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size)
 	{
-		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
+		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(Buffer);
 
-		if (!VulkanVbo->bHasIndexBuffer)
-		{
-			//GLog->error("Vulkan vertex buffer was not created with an index buffer, cant upload index buffer data");
-			return;
-		}
-
-		SynchronizedUploadBufferData(VulkanVbo->IndexStagingCompleteFence, Size, Data,
-			VulkanVbo->IndexStagingCommandBuffer,
-			VulkanVbo->StagingIndexBufferMemory, VulkanVbo->StagingIndexBuffer,
-			VulkanVbo->DeviceIndexBuffer,
+		SynchronizedUploadBufferData(VulkanIbo->IndexStagingCompleteFence, Size, Data,
+			VulkanIbo->IndexStagingCommandBuffer,
+			VulkanIbo->StagingIndexBufferMemory, VulkanIbo->StagingIndexBuffer,
+			VulkanIbo->DeviceIndexBuffer,
 			VK_ACCESS_INDEX_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
 			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 	}
@@ -2672,40 +2664,32 @@ namespace llrm
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			VulkanVbo->DeviceVertexBuffer, VulkanVbo->DeviceVertexBufferMemory
 		);
-
-
 	}
 
-	void ResizeIndexBuffer(VertexBuffer Buffer, uint64_t NewSize)
+	void ResizeIndexBuffer(IndexBuffer Buffer, uint64_t NewSize)
 	{
 		// Delete old resources
-		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
-
-		if (!VulkanVbo->bHasIndexBuffer)
-		{
-			//GLog->error("Vulkan vertex buffer was not created with an index buffer, can't resize index buffer");
-			return;
-		}
+		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(Buffer);
 
 		// Force queue idle
 		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 
-		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
-		vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
-		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
-		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingIndexBuffer, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanIbo->DeviceIndexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanIbo->StagingIndexBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanIbo->DeviceIndexBuffer, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanIbo->StagingIndexBuffer, nullptr);
 
 		CreateBuffer(NewSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-			VulkanVbo->StagingIndexBuffer, VulkanVbo->StagingIndexBufferMemory
+			VulkanIbo->StagingIndexBuffer, VulkanIbo->StagingIndexBufferMemory
 		);
 
 		// Create device index buffer. Because we will be copying the staging buffer to the device buffer, we need to make it eligible for transfer.
 		CreateBuffer(NewSize,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VulkanVbo->DeviceIndexBuffer, VulkanVbo->DeviceIndexBufferMemory
+			VulkanIbo->DeviceIndexBuffer, VulkanIbo->DeviceIndexBufferMemory
 		);
 	}
 
@@ -3588,40 +3572,23 @@ namespace llrm
 		return Result;
 	}
 
-	VertexBuffer CreateVertexBuffer(VertexBufferCreateInfo* CreateInfo)
+	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data)
 	{
 		VulkanVertexBuffer* VulkanVbo = new VulkanVertexBuffer;
-		VulkanVbo->bHasIndexBuffer = CreateInfo->bCreateIndexBuffer;
 
 		// Create staging buffer. This needs the transfer source bit since we will be transferring it to the device memory.
-		CreateBuffer(CreateInfo->VertexBufferSize,
+		CreateBuffer(Size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 			VulkanVbo->StagingVertexBuffer, VulkanVbo->StagingVertexBufferMemory
 		);
 
 		// Create device buffer. Because we will be copying the staging buffer to the device buffer, we need to make it eligible for transfer.
-		CreateBuffer(CreateInfo->VertexBufferSize,
+		CreateBuffer(Size,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			VulkanVbo->DeviceVertexBuffer, VulkanVbo->DeviceVertexBufferMemory
 		);
-
-		if (CreateInfo->bCreateIndexBuffer)
-		{
-			CreateBuffer(CreateInfo->IndexBufferSize,
-				VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				VulkanVbo->StagingIndexBuffer, VulkanVbo->StagingIndexBufferMemory
-			);
-
-			// Create device index buffer. Because we will be copying the staging buffer to the device buffer, we need to make it eligible for transfer.
-			CreateBuffer(CreateInfo->IndexBufferSize,
-				VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				VulkanVbo->DeviceIndexBuffer, VulkanVbo->DeviceIndexBufferMemory
-			);
-		}
 
 		// Create fence to synchronize staging buffer access
 		VkFenceCreateInfo FenceCreate{};
@@ -3629,12 +3596,6 @@ namespace llrm
 		FenceCreate.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 		if (vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &VulkanVbo->VertexStagingCompleteFence) != VK_SUCCESS)
-		{
-			//GLog->critical("Failed to create staging fence");
-			return nullptr;
-		}
-
-		if (CreateInfo->bCreateIndexBuffer && vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &VulkanVbo->IndexStagingCompleteFence) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to create staging fence");
 			return nullptr;
@@ -3653,15 +3614,54 @@ namespace llrm
 			return nullptr;
 		}
 
-		if (CreateInfo->bCreateIndexBuffer && vkAllocateCommandBuffers(GVulkanContext.Device, &AllocInfo, &VulkanVbo->IndexStagingCommandBuffer) != VK_SUCCESS)
+
+		RECORD_RESOURCE_ALLOC(VulkanVbo)
+
+		return VulkanVbo;
+	}
+
+	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data)
+	{
+		VulkanIndexBuffer* VulkanIbo = new VulkanIndexBuffer;
+
+		CreateBuffer(Size,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+			VulkanIbo->StagingIndexBuffer, VulkanIbo->StagingIndexBufferMemory
+		);
+
+		// Create device index buffer. Because we will be copying the staging buffer to the device buffer, we need to make it eligible for transfer.
+		CreateBuffer(Size,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VulkanIbo->DeviceIndexBuffer, VulkanIbo->DeviceIndexBufferMemory
+		);
+
+		// Create fence to synchronize staging buffer access
+		VkFenceCreateInfo FenceCreate{};
+		FenceCreate.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		FenceCreate.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+		if (vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &VulkanIbo->IndexStagingCompleteFence) != VK_SUCCESS)
+		{
+			//GLog->critical("Failed to create staging fence");
+			return nullptr;
+		}
+
+		// Create command buffer used to transfer staging buffer to device buffer
+		VkCommandBufferAllocateInfo AllocInfo{};
+		AllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		AllocInfo.commandBufferCount = 1;
+		AllocInfo.commandPool = GVulkanContext.MainCommandPool;
+		AllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+		if(vkAllocateCommandBuffers(GVulkanContext.Device, &AllocInfo, &VulkanIbo->IndexStagingCommandBuffer) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to create staging command buffer");
 			return nullptr;
 		}
 
-		RECORD_RESOURCE_ALLOC(VulkanVbo)
-
-		return VulkanVbo;
+		RECORD_RESOURCE_ALLOC(VulkanIbo)
+		return VulkanIbo;
 	}
 
 	void DestroyVertexBuffer(VertexBuffer VertexBuffer)
@@ -3671,24 +3671,31 @@ namespace llrm
 
 		vkDeviceWaitIdle(GVulkanContext.Device);
 
-		if (VulkanVbo->bHasIndexBuffer)
-		{
-			vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
-			vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
-			vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingIndexBuffer, nullptr);
-			vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
-			vkDestroyFence(GVulkanContext.Device, VulkanVbo->IndexStagingCompleteFence, nullptr);
-			vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VulkanVbo->IndexStagingCommandBuffer);
-		}
-
 		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceVertexBufferMemory, nullptr);
-		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
 		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingVertexBuffer, nullptr);
 		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceVertexBuffer, nullptr);
 		vkDestroyFence(GVulkanContext.Device, VulkanVbo->VertexStagingCompleteFence, nullptr);
 		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VulkanVbo->VertexStagingCommandBuffer);
 
 		delete VulkanVbo;
+	}
+
+	void DestroyIndexBuffer(IndexBuffer IndexBuffer)
+	{
+		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(IndexBuffer);
+		REMOVE_RESOURCE_ALLOC(VulkanVbo)
+
+		vkDeviceWaitIdle(GVulkanContext.Device);
+
+		vkFreeMemory(GVulkanContext.Device, VulkanIbo->DeviceIndexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanIbo->StagingIndexBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanIbo->StagingIndexBuffer, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanIbo->DeviceIndexBuffer, nullptr);
+		vkDestroyFence(GVulkanContext.Device, VulkanIbo->IndexStagingCompleteFence, nullptr);
+		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VulkanIbo->IndexStagingCommandBuffer);
+
+		delete VulkanIbo;
 	}
 
 	void DestroyFrameBuffer(FrameBuffer FrameBuffer)
