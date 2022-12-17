@@ -56,19 +56,34 @@ struct VulkanFrame
 	}
 };
 
+struct VulkanTexture
+{
+	// This staging buffer is used if the texture can be uploaded to from the CPU
+	VkBuffer StagingBuffer;
+	VkDeviceMemory StagingBufferMemory;
+
+	VkDeviceMemory TextureMemory;
+	VkImage TextureImage;
+
+	VkImageView TextureImageView;
+	VkSampler TextureSampler;
+
+	uint64_t TextureFlags{};
+
+	llrm::AttachmentFormat TextureFormat{};
+	uint32_t Width = 0, Height = 0;
+};
+
 struct VulkanSwapChain
 {
 	VkSwapchainKHR SwapChain;
-	VkFormat ImageFormat;
+	llrm::AttachmentFormat ImageFormat;
 	VkPresentModeKHR PresentMode;
 	VkExtent2D SwapChainExtent;
-	uint32_t ImageCount;
-	VkImage* Images;
-	std::vector<VkImageView> ImageViews;
+
+	std::vector<VulkanTexture> Images;
 
 	int32_t CurrentFrame = 0;
-
-	std::vector<VkCommandBuffer> BuffersToSubmit;
 
 	/**
 	 * Keep track of frames in flight for this swap chain.
@@ -203,24 +218,6 @@ struct VulkanIndexBuffer
 	VkFence IndexStagingCompleteFence;
 };
 
-struct VulkanTexture
-{
-	// This staging buffer is used if the texture can be uploaded to from the CPU
-	VkBuffer StagingBuffer;
-	VkDeviceMemory StagingBufferMemory;
-
-	VkDeviceMemory TextureMemory;
-	VkImage TextureImage;
-
-	VkImageView TextureImageView;
-	VkSampler TextureSampler;
-
-	uint64_t TextureFlags{};
-
-	llrm::AttachmentFormat TextureFormat{};
-	uint32_t Width = 0, Height = 0;
-};
-
 struct VulkanFrameBuffer
 {
 	uint32_t AttachmentWidth;
@@ -239,7 +236,7 @@ struct VulkanCommandBuffer
 {
 	VulkanSwapChain* CurrentSwapChain{};
 	VulkanFrameBuffer* CurrentFbo{};
-	std::vector<VkCommandBuffer> CmdBuffers;
+	VkCommandBuffer CmdBuffer;
 	bool bDynamic = false; // If bTargetSwapChain is true, whether this command buffer will be re-recorded every frame (true) or very in-frequently recorded
 	bool bOneTimeUse = false; // Whether this command buffer is intended to only be used once
 	bool bTargetSwapChain = false; // Whether this command buffer targets the swap chain (i.e. references a frame with vkBeginRenderPass)
@@ -870,17 +867,7 @@ namespace llrm
 	void ForEachCmdBuffer(CommandBuffer Cmd, std::function<void(VkCommandBuffer&, int32_t ImageIndex)> Inner)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Cmd);
-		if (VkCmd->bTargetSwapChain && VkCmd->bDynamic)
-		{
-			Inner(VkCmd->CmdBuffers[GVulkanContext.CurrentSwapChain->AcquiredImageIndex], GVulkanContext.CurrentSwapChain->AcquiredImageIndex);
-		}
-		else
-		{
-			for (int32_t CmdBufferIndex = 0; CmdBufferIndex < VkCmd->CmdBuffers.size(); CmdBufferIndex++)
-			{
-				Inner(VkCmd->CmdBuffers[CmdBufferIndex], CmdBufferIndex);
-			}
-		}
+		Inner(VkCmd->CmdBuffer, 0);
 	};
 
 	VkFormat AttachmentFormatToVkFormat(AttachmentFormat Format)
@@ -891,6 +878,8 @@ namespace llrm
 		{
 		case AttachmentFormat::B8G8R8A8_SRGB:
 			return VK_FORMAT_B8G8R8A8_SRGB;
+		case AttachmentFormat::B8G8R8A8_UNORM:
+			return VK_FORMAT_B8G8R8A8_UNORM;
 		case AttachmentFormat::R32_UINT:
 			return VK_FORMAT_R32_UINT;
 		case AttachmentFormat::R32_FLOAT:
@@ -917,6 +906,22 @@ namespace llrm
 
 		//GLog->error("Attachment not found");
 		return VK_FORMAT_B8G8R8A8_SRGB;
+	}
+
+	AttachmentFormat VkFormatToAttachmentFormat(VkFormat Format)
+	{
+
+		switch (Format)
+		{
+		case VK_FORMAT_B8G8R8A8_SRGB:
+			return AttachmentFormat::B8G8R8A8_SRGB;
+		case VK_FORMAT_B8G8R8A8_UNORM:
+			return AttachmentFormat::B8G8R8A8_UNORM;
+
+		}
+
+		//GLog->error("Attachment not found");
+		return AttachmentFormat::B8G8R8A8_UNORM;
 	}
 
 	VkImageLayout AttachmentUsageToVkLayout(AttachmentUsage Usage)
@@ -1228,7 +1233,7 @@ namespace llrm
 			VkClearValue ClearValue{};
 			if (CV.Clear == ClearType::Float)
 			{
-				float ClearFloats[4] = { CV.FloatClearValue[0], CV.FloatClearValue[1], CV.FloatClearValue[3], CV.FloatClearValue[4]};
+				float ClearFloats[4] = { CV.FloatClearValue[0], CV.FloatClearValue[1], CV.FloatClearValue[2], CV.FloatClearValue[3]};
 				memcpy(ClearValue.color.float32, ClearFloats, sizeof(ClearFloats));
 			}
 			else if (CV.Clear == ClearType::SInt)
@@ -1661,7 +1666,7 @@ namespace llrm
 		}
 
 		// Also store the optimal settings for later reference
-		Dst->ImageFormat = OptimalFormat.format;
+		Dst->ImageFormat = VkFormatToAttachmentFormat(OptimalFormat.format);
 		Dst->PresentMode = OptimalPresentMode;
 		Dst->SwapChainExtent = OptimalExtent;
 
@@ -1677,24 +1682,27 @@ namespace llrm
 	bool CreateVkSwapChainImageViews(VulkanSwapChain* Dst)
 	{
 		// Retrieve the swap chain images
-		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &Dst->ImageCount, nullptr);
+		uint32_t ImageCount{};
+		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &ImageCount, nullptr);
 
 		// Allocate space for images
-		Dst->Images = new VkImage[Dst->ImageCount];
+		std::vector<VkImage> Images(ImageCount);
 
 		// Get the actual swap chain images
-		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &Dst->ImageCount, Dst->Images);
+		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &ImageCount, Images.data());
 
-		// Create image views for swap chain
-		Dst->ImageViews.resize(Dst->ImageCount);
+		Dst->Images.resize(ImageCount);
 
-		for (uint32_t ImageIndex = 0; ImageIndex < Dst->ImageCount; ImageIndex++)
+		for (uint32_t ImageIndex = 0; ImageIndex < ImageCount; ImageIndex++)
 		{
+			Dst->Images[ImageIndex].TextureImage = Images[ImageIndex];
+			Dst->Images[ImageIndex].TextureFormat = Dst->ImageFormat;
+
 			VkImageViewCreateInfo ImageViewCreateInfo{};
 			ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			ImageViewCreateInfo.image = Dst->Images[ImageIndex];
+			ImageViewCreateInfo.image = Images[ImageIndex];
 			ImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			ImageViewCreateInfo.format = Dst->ImageFormat;
+			ImageViewCreateInfo.format = AttachmentFormatToVkFormat(Dst->ImageFormat);
 			ImageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 			ImageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 			ImageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -1705,7 +1713,7 @@ namespace llrm
 			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
 			ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
-			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &Dst->ImageViews[ImageIndex]) != VK_SUCCESS)
+			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &Dst->Images[ImageIndex].TextureImageView) != VK_SUCCESS)
 			{
 				//GLog->error("Failed to create image view for swap chain");
 
@@ -1724,13 +1732,10 @@ namespace llrm
 
 	void DestroyVkSwapChainImageViews(VulkanSwapChain* VkSwap)
 	{
-		// Clean up the images
-		delete[] VkSwap->Images;
-
 		// Clean up framebuffers and image views
-		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->ImageCount; SwapChainImage++)
+		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->Images.size(); SwapChainImage++)
 		{
-			vkDestroyImageView(GVulkanContext.Device, VkSwap->ImageViews[SwapChainImage], nullptr);
+			vkDestroyImageView(GVulkanContext.Device, VkSwap->Images[SwapChainImage].TextureImageView, nullptr);
 		}
 	}
 
@@ -1781,7 +1786,7 @@ namespace llrm
 		}
 
 		// Resize image fences to as many swap chain images that we have. Also, start them all at the null handle.
-		Result->ImageFences.resize(Result->ImageCount, VK_NULL_HANDLE);
+		Result->ImageFences.resize(Result->Images.size(), VK_NULL_HANDLE);
 
 		RECORD_RESOURCE_ALLOC(Result)
 
@@ -1812,15 +1817,6 @@ namespace llrm
 		delete VkSwap;
 	}
 
-	void SubmitSwapCommandBuffer(SwapChain Target, CommandBuffer Buffer)
-	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
-		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buffer);
-
-		// Submit the buffer for the current acquired image
-		VkSwap->BuffersToSubmit.push_back(VkCmd->CmdBuffers[VkSwap->AcquiredImageIndex]);
-	}
-
 	void SubmitCommandBuffer(CommandBuffer Buffer, bool bWait, Fence WaitFence)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buffer);
@@ -1828,7 +1824,7 @@ namespace llrm
 		VkSubmitInfo SubmitInfo{};
 		SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		SubmitInfo.commandBufferCount = 1;
-		SubmitInfo.pCommandBuffers = &VkCmd->CmdBuffers[0];
+		SubmitInfo.pCommandBuffers = &VkCmd->CmdBuffer;
 
 		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, 1, &SubmitInfo, WaitFence ? static_cast<VkFence>(WaitFence) : VK_NULL_HANDLE) != VK_SUCCESS)
 		{
@@ -1841,7 +1837,7 @@ namespace llrm
 		}
 	}
 
-	void BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
+	int32_t BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 
@@ -1852,7 +1848,7 @@ namespace llrm
 		if (FrameWidth == 0 || FrameHeight == 0)
 		{
 			vkDeviceWaitIdle(GVulkanContext.Device);
-			return;
+			return -1;
 		}
 
 		// Acquire image
@@ -1874,9 +1870,11 @@ namespace llrm
 
 		// Mark new image as being used by this "frame in flight"
 		VkSwap->ImageFences[VkSwap->AcquiredImageIndex] = VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence;
+
+		return VkSwap->AcquiredImageIndex;
 	}
 
-	void EndFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
+	void Present(SwapChain Swap, Surface Target, const std::vector<CommandBuffer>& Buffers, int32_t FrameWidth, int32_t FrameHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 		GVulkanContext.CurrentSwapChain = nullptr;
@@ -1887,12 +1885,15 @@ namespace llrm
 		if (FrameWidth == 0 || FrameHeight == 0)
 		{
 			vkDeviceWaitIdle(GVulkanContext.Device);
-			VkSwap->BuffersToSubmit.clear();
 			return;
 		}
 
 		// Reset the fence that we're waiting on
 		vkResetFences(GVulkanContext.Device, 1, &VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence);
+
+		std::vector<VkCommandBuffer> VkBuffers(Buffers.size());
+		for (uint32_t Buffer = 0; Buffer < Buffers.size(); Buffer++)
+			VkBuffers[Buffer] = (static_cast<VulkanCommandBuffer*>(Buffers[Buffer]))->CmdBuffer;
 
 		// Submit our command buffers for this frame
 		VkPipelineStageFlags WaitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -1901,13 +1902,13 @@ namespace llrm
 		QueueSubmit.waitSemaphoreCount = 1;
 		QueueSubmit.pWaitSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].ImageAvailableSemaphore;
 		QueueSubmit.pWaitDstStageMask = WaitStages;
-		QueueSubmit.commandBufferCount = static_cast<uint32_t>(VkSwap->BuffersToSubmit.size());
-		QueueSubmit.pCommandBuffers = VkSwap->BuffersToSubmit.data();
+		QueueSubmit.commandBufferCount = static_cast<uint32_t>(VkBuffers.size());
+		QueueSubmit.pCommandBuffers = VkBuffers.data();
 		QueueSubmit.signalSemaphoreCount = 1;
 		QueueSubmit.pSignalSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].RenderingFinishedSemaphore; // Signal when rendering is finished
 
 		// Notify the in flight fence once the execution of this vkQueueSubmit is complete
-		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, static_cast<uint32_t>(VkSwap->BuffersToSubmit.size()), &QueueSubmit, VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence) != VK_SUCCESS)
+		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, static_cast<uint32_t>(VkBuffers.size()), &QueueSubmit, VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to submit vulkan command buffers to graphics queue");
 		}
@@ -1932,9 +1933,6 @@ namespace llrm
 
 		// Advance the current frame
 		VkSwap->CurrentFrame = (VkSwap->CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-
-		// Reset the submitted command buffers
-		VkSwap->BuffersToSubmit.clear();
 	}
 
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height)
@@ -1942,6 +1940,18 @@ namespace llrm
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 		Width = VkSwap->SwapChainExtent.width;
 		Height = VkSwap->SwapChainExtent.height;
+	}
+
+	uint32_t GetSwapChainImageCount(SwapChain Swap)
+	{
+		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
+		return VkSwap->Images.size();
+	}
+
+	Texture GetSwapChainImage(SwapChain Swap, uint32_t Index)
+	{
+		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
+		return &VkSwap->Images[Index];
 	}
 
 	void RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight)
@@ -2279,6 +2289,12 @@ namespace llrm
 		// TODO: optimize this, we should have a staging buffer set aside already and a flag TEXTURE_USAGE_CPU_READ
 		vkFreeMemory(GVulkanContext.Device, StagingBufferMemory, nullptr);
 		vkDestroyBuffer(GVulkanContext.Device, StagingBuffer, nullptr);
+	}
+
+	AttachmentFormat GetTextureFormat(Texture Tex)
+	{
+		VulkanTexture* VkTex = static_cast<VulkanTexture*>(Tex);
+		return VkTex->TextureFormat;
 	}
 
 	VkShaderStageFlags ShaderStageToVkStage(ShaderStage Stage)
@@ -2766,35 +2782,6 @@ namespace llrm
 		return Result;
 	}
 
-	CommandBuffer CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic)
-	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
-
-		// Create a single command buffer
-		VkCommandBufferAllocateInfo CmdBufAllocInfo{};
-		CmdBufAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		CmdBufAllocInfo.commandPool = GVulkanContext.MainCommandPool;
-		CmdBufAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // TODO: support secondary command buffers
-		CmdBufAllocInfo.commandBufferCount = VkSwap->ImageCount;
-
-		VulkanCommandBuffer* NewCmdBuf = new VulkanCommandBuffer;
-		NewCmdBuf->CmdBuffers.resize(VkSwap->ImageCount);
-		NewCmdBuf->bDynamic = bDynamic;
-		NewCmdBuf->bTargetSwapChain = true;
-
-		if (vkAllocateCommandBuffers(GVulkanContext.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
-		{
-			//GLog->critical("Failed to allocate command buffer");
-
-			delete NewCmdBuf;
-			return nullptr;
-		}
-
-		RECORD_RESOURCE_ALLOC(NewCmdBuf)
-
-		return NewCmdBuf;
-	}
-
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse)
 	{
 		// Create a single command buffer
@@ -2805,10 +2792,9 @@ namespace llrm
 		CmdBufAllocInfo.commandBufferCount = 1;
 
 		VulkanCommandBuffer* NewCmdBuf = new VulkanCommandBuffer;
-		NewCmdBuf->CmdBuffers.resize(1); // Only create a single command buffer since we're not targeting the swap chain
 		NewCmdBuf->bOneTimeUse = bOneTimeUse;
 
-		if (vkAllocateCommandBuffers(GVulkanContext.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(GVulkanContext.Device, &CmdBufAllocInfo, &NewCmdBuf->CmdBuffer) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to allocate command buffer");
 
@@ -2828,7 +2814,7 @@ namespace llrm
 
 		VulkanResourceSet* Result = new VulkanResourceSet;
 
-		uint32_t ImageCount = VkSwap->ImageCount;
+		uint32_t ImageCount = VkSwap->Images.size();
 
 		// Allocate buffers
 		for (const auto& ConstBuf : VkLayout->ConstantBuffers)
@@ -3136,6 +3122,10 @@ namespace llrm
 			return nullptr;
 		}
 
+		if(Data)
+		{
+			UploadVertexBufferData(VulkanVbo, Data, Size);
+		}
 
 		RECORD_RESOURCE_ALLOC(VulkanVbo)
 
@@ -3238,7 +3228,7 @@ namespace llrm
 		REMOVE_RESOURCE_ALLOC(VkCmdBuffer)
 
 		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
-		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, static_cast<uint32_t>(VkCmdBuffer->CmdBuffers.size()), VkCmdBuffer->CmdBuffers.data());
+		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VkCmdBuffer->CmdBuffer);
 
 		delete VkCmdBuffer;
 	}

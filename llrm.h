@@ -31,6 +31,7 @@ namespace llrm
 
 	enum class AttachmentFormat
 	{
+		B8G8R8A8_UNORM,
 		B8G8R8A8_SRGB,
 		R32_UINT,
 		R32_SINT,
@@ -336,7 +337,6 @@ namespace llrm
 	FrameBuffer CreateFrameBuffer(const FrameBufferCreateInfo& CreateInfo);
 	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
 	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data = nullptr);
-	CommandBuffer CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo);
 
@@ -357,11 +357,13 @@ namespace llrm
 	void DestroyCommandBuffer(CommandBuffer CmdBuffer);
 
 	// Swap chain operations
-	void BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight);
-	void EndFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight);
+	int32_t BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight);
+	void Present(SwapChain Swap, Surface Target, const std::vector<CommandBuffer> &Buffers, int32_t FrameWidth, int32_t FrameHeight);
     void RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight);
 	void SubmitSwapCommandBuffer(SwapChain Target, CommandBuffer Buffer);
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height);
+	uint32_t GetSwapChainImageCount(SwapChain Swap);
+	Texture GetSwapChainImage(SwapChain Swap, uint32_t Index);
 
 	// Vertex buffer operations
 	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size);
@@ -376,8 +378,8 @@ namespace llrm
 	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
 
 	void UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding) ;
-
 	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);
+	AttachmentFormat GetTextureFormat(Texture Tex);
 
 	// Command buffer operations
 	void SubmitCommandBuffer(CommandBuffer Buffer, bool bWait = false, Fence WaitFence = nullptr);

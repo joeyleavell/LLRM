@@ -11,7 +11,7 @@ struct PSOut
 PSOut main(PSIn Input)
 {
     PSOut Output;
-    Output.Color = float4(1.0f, 0.0f, 0.0f, 1.0f);
+    Output.Color = float4(0.0f, 1.0f, 0.0f, 1.0f);
 
     return Output;
 }
