@@ -203,29 +203,34 @@ struct VulkanIndexBuffer
 	VkFence IndexStagingCompleteFence;
 };
 
+struct VulkanTexture
+{
+	// This staging buffer is used if the texture can be uploaded to from the CPU
+	VkBuffer StagingBuffer;
+	VkDeviceMemory StagingBufferMemory;
+
+	VkDeviceMemory TextureMemory;
+	VkImage TextureImage;
+
+	VkImageView TextureImageView;
+	VkSampler TextureSampler;
+
+	uint64_t TextureFlags{};
+
+	llrm::AttachmentFormat TextureFormat{};
+	uint32_t Width = 0, Height = 0;
+};
+
 struct VulkanFrameBuffer
 {
 	uint32_t AttachmentWidth;
 	uint32_t AttachmentHeight;
 
-	std::vector<VkImageView>    AllAttachments;
-
-	// Color attachment info
-	std::vector<VkImage>        ColorAttachmentImages;
-	std::vector<VkImageView>    ColorAttachmentImageViews;
-	std::vector<VkDeviceMemory> ColorAttachmentMemory;
-	std::vector<VkSampler>      ColorAttachmentSamplers;
-
-	// Depth/stencil info
-	bool                        bHasDepthStencilAttachment = false;
-	VkImage                     DepthStencilImage;
-	VkImageView                 DepthStencilImageView;
-	VkDeviceMemory              DepthStencilMemory;
+	std::vector<VulkanTexture*>    AllAttachments;
 
 	VkFramebuffer VulkanFbo;
 
 	// Store some of the initial creation info for re-creating the framebuffers
-	std::vector<llrm::FramebufferAttachmentDescription> ColorAttachmentDescriptions;
 	llrm::FramebufferAttachmentDescription              DepthStencilAttachmentDesc;
 	VkRenderPass                                  CreatedFor;
 };
@@ -260,18 +265,6 @@ struct VulkanResourceSet
 {
 	std::vector<ConstantBufferStorage> ConstantBuffers;
 	std::vector<VkDescriptorSet> DescriptorSets;
-};
-
-struct VulkanTexture
-{
-	VkBuffer StagingBuffer;
-	VkDeviceMemory StagingBufferMemory;
-
-	VkDeviceMemory TextureMemory;
-	VkImage TextureImage;
-
-	VkImageView TextureImageView;
-	VkSampler TextureSampler;
 };
 
 // //////////////////////////////////////////
@@ -1007,237 +1000,18 @@ namespace llrm
 		return VK_BLEND_FACTOR_ONE;
 	}
 
-	bool CreateFrameBufferImages(VulkanFrameBuffer* DstFbo, std::vector<FramebufferAttachmentDescription> Attachments, uint32_t Width, uint32_t Height)
-	{
-
-		// Create color attachments
-		for (uint32_t ColorAttachmentIndex = 0; ColorAttachmentIndex < Attachments.size(); ColorAttachmentIndex++)
-		{
-			const FramebufferAttachmentDescription& AttachDesc = Attachments[ColorAttachmentIndex];
-
-			// Use this function to ensure this and RenderGraph get the same color attachment format
-			VkFormat ColorAttachmentFormat = AttachmentFormatToVkFormat(AttachDesc.Format);
-
-			// Create image image memory
-			VkImageCreateInfo ColorAttachCreateInfo{};
-			ColorAttachCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-			ColorAttachCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-			ColorAttachCreateInfo.extent.width = Width;
-			ColorAttachCreateInfo.extent.height = Height;
-			ColorAttachCreateInfo.extent.depth = 1;
-			ColorAttachCreateInfo.mipLevels = 1;
-			ColorAttachCreateInfo.arrayLayers = 1;
-			ColorAttachCreateInfo.format = ColorAttachmentFormat;
-			ColorAttachCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-			ColorAttachCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			// This will both be written to and sampled by from the shader
-			// This will also allow us to read back the framebuffer attachment to the cpu
-			ColorAttachCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-			ColorAttachCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			ColorAttachCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-			ColorAttachCreateInfo.flags = 0;
-
-			VkImage ResultImage;
-			if (vkCreateImage(GVulkanContext.Device, &ColorAttachCreateInfo, nullptr, &ResultImage) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
-				return false;
-			}
-
-
-			DstFbo->ColorAttachmentImages.push_back(ResultImage);
-
-			// Create device memory
-			VkMemoryRequirements ImageMemRequirements;
-			vkGetImageMemoryRequirements(GVulkanContext.Device, ResultImage, &ImageMemRequirements);
-
-			// This memory will never be accessed by the host, so keep it device local
-			int32_t MemTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			if (MemTypeIndex < 0)
-			{
-				//GLog->critical("Failed to find memory type while creating device memory for image");
-				return false;
-			}
-
-			VkMemoryAllocateInfo ImageAllocInfo{};
-			ImageAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			ImageAllocInfo.allocationSize = ImageMemRequirements.size;
-			ImageAllocInfo.memoryTypeIndex = MemTypeIndex;
-
-			VkDeviceMemory ColorAttachMemory;
-			if (vkAllocateMemory(GVulkanContext.Device, &ImageAllocInfo, nullptr, &ColorAttachMemory) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create device memory for framebuffer color attachment");
-				return false;
-			}
-
-			DstFbo->ColorAttachmentMemory.push_back(ColorAttachMemory);
-
-			// Bind the memory to the image
-			vkBindImageMemory(GVulkanContext.Device, ResultImage, ColorAttachMemory, 0);
-
-			// Create an image view for the newly created image
-			VkImageViewCreateInfo ImageViewCreateInfo{};
-			ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			ImageViewCreateInfo.image = ResultImage;
-			ImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			ImageViewCreateInfo.format = ColorAttachmentFormat;
-			ImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			ImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-			ImageViewCreateInfo.subresourceRange.levelCount = 1;
-			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-			ImageViewCreateInfo.subresourceRange.layerCount = 1;
-
-			VkImageView ColorAttachmentImageView;
-			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &ColorAttachmentImageView) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
-				return false;
-			}
-
-			DstFbo->ColorAttachmentImageViews.push_back(ColorAttachmentImageView);
-			DstFbo->AllAttachments.push_back(ColorAttachmentImageView);
-
-			// Immediately transition image to correct layout
-			ImmediateSubmitAndWait([=](CommandBuffer Cmd)
-			{
-				TransitionFrameBufferColorAttachment(Cmd, DstFbo, ColorAttachmentIndex, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
-			});
-		}
-
-		// Create optional depth stencil attachment
-		if (DstFbo->bHasDepthStencilAttachment)
-		{
-			const FramebufferAttachmentDescription& AttachDesc = DstFbo->DepthStencilAttachmentDesc;
-
-			// Use this function to ensure this and RenderGraph get the same color attachment format
-			VkFormat DepthStencilAtachmentFormat = AttachmentFormatToVkFormat(AttachmentFormat::D24_UNORM_S8_UINT);
-
-			// Create image memory
-			VkImageCreateInfo DepthStencilCreateInfo{};
-			DepthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-			DepthStencilCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-			DepthStencilCreateInfo.extent.width = Width;
-			DepthStencilCreateInfo.extent.height = Height;
-			DepthStencilCreateInfo.extent.depth = 1;
-			DepthStencilCreateInfo.mipLevels = 1;
-			DepthStencilCreateInfo.arrayLayers = 1;
-			DepthStencilCreateInfo.format = DepthStencilAtachmentFormat;
-			DepthStencilCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-			DepthStencilCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			DepthStencilCreateInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT; // This will possibly both be written to and sampled by from the shader
-			DepthStencilCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			DepthStencilCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-			DepthStencilCreateInfo.flags = 0;
-
-			if (vkCreateImage(GVulkanContext.Device, &DepthStencilCreateInfo, nullptr, &DstFbo->DepthStencilImage) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
-				return false;
-			}
-
-			// Create device memory
-			VkMemoryRequirements ImageMemRequirements;
-			vkGetImageMemoryRequirements(GVulkanContext.Device, DstFbo->DepthStencilImage, &ImageMemRequirements);
-
-			// This memory will never be accessed by the host, so keep it device local
-			int32_t MemTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			if (MemTypeIndex < 0)
-			{
-				//GLog->critical("Failed to find memory type while creating device memory for image");
-				return false;
-			}
-
-			VkMemoryAllocateInfo ImageAllocInfo{};
-			ImageAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			ImageAllocInfo.allocationSize = ImageMemRequirements.size;
-			ImageAllocInfo.memoryTypeIndex = MemTypeIndex;
-
-			if (vkAllocateMemory(GVulkanContext.Device, &ImageAllocInfo, nullptr, &DstFbo->DepthStencilMemory) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create device memory for framebuffer color attachment");
-				return false;
-			}
-
-			// Bind the memory to the image
-			vkBindImageMemory(GVulkanContext.Device, DstFbo->DepthStencilImage, DstFbo->DepthStencilMemory, 0);
-
-			// Create an image view for the newly created image
-			VkImageViewCreateInfo ImageViewCreateInfo{};
-			ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			ImageViewCreateInfo.image = DstFbo->DepthStencilImage;
-			ImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			ImageViewCreateInfo.format = DepthStencilAtachmentFormat;
-			ImageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-			ImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-			ImageViewCreateInfo.subresourceRange.levelCount = 1;
-			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-			ImageViewCreateInfo.subresourceRange.layerCount = 1;
-
-			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &DstFbo->DepthStencilImageView) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
-				return false;
-			}
-
-			DstFbo->AllAttachments.push_back(DstFbo->DepthStencilImageView);
-
-			// Immediately transition image to correct layout
-			ImmediateSubmitAndWait([=](CommandBuffer Cmd)
-			{
-				TransitionFrameBufferDepthStencilAttachment(Cmd, DstFbo, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
-			});
-		}
-
-		return true;
-	}
-
-	bool CreateFrameBufferSamplers(VulkanFrameBuffer* DstFbo, uint32_t ColorAttachmentCount)
-	{
-		// Create framebuffer samplers
-		for (uint32_t ColorAttachmentIndex = 0; ColorAttachmentIndex < ColorAttachmentCount; ColorAttachmentIndex++)
-		{
-			VkFilter SampFilter = FilterToVkFilter(DstFbo->ColorAttachmentDescriptions[ColorAttachmentIndex].SamplerFilter);
-
-			VkSamplerCreateInfo SampleCreateInfo{};
-			SampleCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-			SampleCreateInfo.magFilter = SampFilter;
-			SampleCreateInfo.minFilter = SampFilter;
-			SampleCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SampleCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SampleCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SampleCreateInfo.anisotropyEnable = VK_FALSE;
-			SampleCreateInfo.maxAnisotropy = 0;
-			SampleCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-			SampleCreateInfo.unnormalizedCoordinates = VK_FALSE;
-			SampleCreateInfo.compareEnable = VK_FALSE;
-			SampleCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-			SampleCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-			SampleCreateInfo.mipLodBias = 0.0f;
-			SampleCreateInfo.minLod = 0.0f;
-			SampleCreateInfo.maxLod = 0.0f;
-
-			VkSampler ResultSampler;
-			if (vkCreateSampler(GVulkanContext.Device, &SampleCreateInfo, nullptr, &ResultSampler) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create sampler when creating vulkan framebuffer");
-				return false;
-			}
-
-			DstFbo->ColorAttachmentSamplers.push_back(ResultSampler);
-		}
-
-		return true;
-	}
-
 	bool CreateFrameBufferResource(VulkanFrameBuffer* DstFbo, VkRenderPass Pass, uint32_t Width, uint32_t Height)
 	{
+		std::vector<VkImageView> Attachments;
+		for (VulkanTexture* Attach : DstFbo->AllAttachments)
+			Attachments.push_back(Attach->TextureImageView);
+
 		// Finally, create the framebuffer
 		VkFramebufferCreateInfo FrameBufferCreateInfo{};
 		FrameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		FrameBufferCreateInfo.renderPass = Pass;
-		FrameBufferCreateInfo.attachmentCount = static_cast<uint32_t>(DstFbo->AllAttachments.size());
-		FrameBufferCreateInfo.pAttachments = DstFbo->AllAttachments.data();
+		FrameBufferCreateInfo.attachmentCount = static_cast<uint32_t>(Attachments.size());
+		FrameBufferCreateInfo.pAttachments = Attachments.data();
 		FrameBufferCreateInfo.width = Width;
 		FrameBufferCreateInfo.height = Height;
 		FrameBufferCreateInfo.layers = 1;
@@ -1249,46 +1023,6 @@ namespace llrm
 		}
 
 		return true;
-	}
-
-	void DestroyFramebufferImages(VulkanFrameBuffer* VkFbo)
-	{
-		std::for_each(VkFbo->ColorAttachmentImageViews.begin(), VkFbo->ColorAttachmentImageViews.end(), [](const VkImageView& ImageView)
-		{
-			vkDestroyImageView(GVulkanContext.Device, ImageView, nullptr);
-		});
-
-		std::for_each(VkFbo->ColorAttachmentMemory.begin(), VkFbo->ColorAttachmentMemory.end(), [](const VkDeviceMemory& ImageMemory)
-		{
-			vkFreeMemory(GVulkanContext.Device, ImageMemory, nullptr);
-		});
-
-		std::for_each(VkFbo->ColorAttachmentImages.begin(), VkFbo->ColorAttachmentImages.end(), [](const VkImage& Image)
-		{
-			vkDestroyImage(GVulkanContext.Device, Image, nullptr);
-		});
-
-		if (VkFbo->bHasDepthStencilAttachment)
-		{
-			vkDestroyImage(GVulkanContext.Device, VkFbo->DepthStencilImage, nullptr);
-			vkFreeMemory(GVulkanContext.Device, VkFbo->DepthStencilMemory, nullptr);
-			vkDestroyImageView(GVulkanContext.Device, VkFbo->DepthStencilImageView, nullptr);
-		}
-
-		VkFbo->ColorAttachmentImages.clear();
-		VkFbo->ColorAttachmentImageViews.clear();
-		VkFbo->ColorAttachmentMemory.clear();
-		VkFbo->AllAttachments.clear();
-	}
-
-	void DestroyFramebufferSamplers(VulkanFrameBuffer* VkFbo)
-	{
-		std::for_each(VkFbo->ColorAttachmentSamplers.begin(), VkFbo->ColorAttachmentSamplers.end(), [](const VkSampler& Sampler)
-		{
-			vkDestroySampler(GVulkanContext.Device, Sampler, nullptr);
-		});
-
-		VkFbo->ColorAttachmentSamplers.clear();
 	}
 
 	uint32_t GetCurrentViewportHeight(CommandBuffer Buf)
@@ -1459,28 +1193,6 @@ namespace llrm
 		);
 	}
 
-	void TransitionFrameBufferColorAttachment(CommandBuffer Buf, FrameBuffer Source, uint32_t AttachmentIndex,
-		AttachmentUsage Old, AttachmentUsage New)
-	{
-		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Source);
-
-		ForEachCmdBuffer(Buf, [Old, New, VkFbo, AttachmentIndex](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-		{
-			TransitionCmd(CmdBuffer, VkFbo->ColorAttachmentImages[AttachmentIndex], VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
-		});
-	}
-
-	void TransitionFrameBufferDepthStencilAttachment(CommandBuffer Buf, FrameBuffer Source,
-		AttachmentUsage Old, AttachmentUsage New)
-	{
-		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Source);
-
-		ForEachCmdBuffer(Buf, [Old, New, VkFbo](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-		{
-			TransitionCmd(CmdBuffer, VkFbo->DepthStencilImage, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, Old, New);
-		});
-	}
-
 	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old,
 		AttachmentUsage New)
 	{
@@ -1488,7 +1200,15 @@ namespace llrm
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
 		{
-			TransitionCmd(CmdBuffer, VkTexture->TextureImage, VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
+			VkImageAspectFlags Flags = 0;
+			if (IsColorFormat(VkTexture->TextureFormat))
+				Flags |= VK_IMAGE_ASPECT_COLOR_BIT;
+			if (IsDepthFormat(VkTexture->TextureFormat))
+				Flags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (IsStencilFormat(VkTexture->TextureFormat))
+				Flags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+
+			TransitionCmd(CmdBuffer, VkTexture->TextureImage, Flags, Old, New);
 		});
 	}
 
@@ -2245,33 +1965,6 @@ namespace llrm
 		Height = VkFbo->AttachmentHeight;
 	}
 
-	void ResizeFrameBuffer(FrameBuffer Fbo, uint32_t NewWidth, uint32_t NewHeight)
-	{
-		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Fbo);
-
-		// Wait on queue
-		vkDeviceWaitIdle(GVulkanContext.Device);
-
-		// Destroy old images
-		DestroyFramebufferImages(VkFbo);
-		vkDestroyFramebuffer(GVulkanContext.Device, VkFbo->VulkanFbo, nullptr);
-
-		// Re-create images and framebuffer
-		if (!CreateFrameBufferImages(VkFbo, VkFbo->ColorAttachmentDescriptions, NewWidth, NewHeight))
-		{
-			return;
-		}
-
-		if (!CreateFrameBufferResource(VkFbo, VkFbo->CreatedFor, NewWidth, NewHeight))
-		{
-			return;
-		}
-
-		// Set the new width/height
-		VkFbo->AttachmentWidth = NewWidth;
-		VkFbo->AttachmentHeight = NewHeight;
-	}
-
 	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
@@ -2351,74 +2044,6 @@ namespace llrm
 		}
 
 		vkUpdateDescriptorSets(GVulkanContext.Device, ImageCount, Writes, 0, nullptr);
-
-		delete[] Writes;
-		delete[] ImageInfos;
-	}
-
-	void UpdateAttachmentResource(ResourceSet Resources, SwapChain Target, FrameBuffer SrcBuffer,
-		uint32_t AttachmentIndex, uint32_t Binding)
-	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
-		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
-		uint32_t CurrentImage = VkSwap->AcquiredImageIndex;
-
-		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(SrcBuffer);
-
-		VkDescriptorImageInfo ImageInfo = {};
-		ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		ImageInfo.imageView = VkFbo->ColorAttachmentImageViews[AttachmentIndex];
-		ImageInfo.sampler = VkFbo->ColorAttachmentSamplers[AttachmentIndex];
-
-		VkWriteDescriptorSet ImageWrite = {};
-		ImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		ImageWrite.dstSet = VkRes->DescriptorSets[CurrentImage];
-		ImageWrite.dstBinding = Binding;
-		ImageWrite.dstArrayElement = 0;
-		ImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		ImageWrite.descriptorCount = 1;
-		ImageWrite.pBufferInfo = nullptr;
-		ImageWrite.pImageInfo = &ImageInfo;
-		ImageWrite.pTexelBufferView = nullptr;
-
-		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &ImageWrite, 0, nullptr);
-	}
-
-	void UpdateAttachmentResources(ResourceSet Resources, SwapChain Target, FrameBuffer* Buffers,
-		uint32_t BufferCount, uint32_t AttachmentIndex, uint32_t Binding)
-	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
-		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
-
-		VkWriteDescriptorSet* Writes = new VkWriteDescriptorSet[BufferCount];
-		VkDescriptorImageInfo* ImageInfos = new VkDescriptorImageInfo[BufferCount];
-		uint32_t CurrentImage = VkSwap->AcquiredImageIndex;
-
-		for (uint32_t ArrayImage = 0; ArrayImage < BufferCount; ArrayImage++)
-		{
-			VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Buffers[ArrayImage]);
-
-			VkDescriptorImageInfo& ImageInfo = ImageInfos[ArrayImage];
-			VkWriteDescriptorSet& ImageWrite = Writes[ArrayImage];
-
-			ImageInfo = {};
-			ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			ImageInfo.imageView = VkFbo->ColorAttachmentImageViews[AttachmentIndex];
-			ImageInfo.sampler = VkFbo->ColorAttachmentSamplers[AttachmentIndex];
-
-			ImageWrite = {};
-			ImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			ImageWrite.dstSet = VkRes->DescriptorSets[CurrentImage];
-			ImageWrite.dstBinding = Binding;
-			ImageWrite.dstArrayElement = ArrayImage;
-			ImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			ImageWrite.descriptorCount = 1;
-			ImageWrite.pBufferInfo = nullptr;
-			ImageWrite.pImageInfo = &ImageInfo;
-			ImageWrite.pTexelBufferView = nullptr;
-		}
-
-		vkUpdateDescriptorSets(GVulkanContext.Device, BufferCount, Writes, 0, nullptr);
 
 		delete[] Writes;
 		delete[] ImageInfos;
@@ -2588,10 +2213,11 @@ namespace llrm
 		);
 	}
 
-	void ReadFramebufferAttachment(FrameBuffer SrcBuffer, uint32_t Attachment, void* Dst, uint64_t BufferSize)
+	void ReadTexture(Texture Tex, uint32_t Attachment, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage)
 	{
 		vkDeviceWaitIdle(GVulkanContext.Device);
-		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(SrcBuffer);
+
+		VulkanTexture* VkTex = static_cast<VulkanTexture*>(Tex); 
 
 		VkBuffer StagingBuffer;
 		VkDeviceMemory StagingBufferMemory;
@@ -2603,10 +2229,10 @@ namespace llrm
 			StagingBuffer, StagingBufferMemory
 		);
 
-		// Transition image to transfer src from shader read
+		// Transition image to transfer src from its previous usage
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
 		{
-			TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::ShaderRead, AttachmentUsage::TransferSource);
+			TransitionTexture(Dst, Tex, PreviousUsage, AttachmentUsage::TransferSource);
 		});
 
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
@@ -2624,11 +2250,11 @@ namespace llrm
 				ImageCopy.imageSubresource.layerCount = 1;
 
 				ImageCopy.imageOffset = { 0, 0, 0 };
-				ImageCopy.imageExtent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight, 1 };
+				ImageCopy.imageExtent = { VkTex->Width, VkTex->Height, 1 };
 
 				// Copy image data to buffer
 				vkCmdCopyImageToBuffer(Buf,
-					VkFbo->ColorAttachmentImages[Attachment],
+					VkTex->TextureImage,
 					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					StagingBuffer,
 					1,
@@ -2647,9 +2273,10 @@ namespace llrm
 		// Transition image back
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
 		{
-			TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::TransferSource, AttachmentUsage::ShaderRead);
+			TransitionTexture(Dst, Tex, AttachmentUsage::TransferSource, PreviousUsage);
 		});
 
+		// TODO: optimize this, we should have a staging buffer set aside already and a flag TEXTURE_USAGE_CPU_READ
 		vkFreeMemory(GVulkanContext.Device, StagingBufferMemory, nullptr);
 		vkDestroyBuffer(GVulkanContext.Device, StagingBuffer, nullptr);
 	}
@@ -3254,38 +2881,33 @@ namespace llrm
 		return Result;
 	}
 
-	VkFormat TexFormatToVkFormat(TextureFormat Format)
-	{
-		switch (Format)
-		{
-		case TextureFormat::UINT32_R8G8B8A8:
-			return VK_FORMAT_B8G8R8A8_SRGB;
-		}
-
-		return VK_FORMAT_R8G8B8A8_SRGB;
-	}
-
-	Texture CreateTexture(uint64_t ImageSize, TextureFormat Format, uint32_t Width, uint32_t Height, void* Data)
+	Texture CreateTexture(AttachmentFormat Format, uint32_t Width, uint32_t Height, uint64_t Flags, uint64_t ImageSize, void* Data)
 	{
 		VulkanTexture* Result = new VulkanTexture;
 
-		VkFormat ImageFormat = VK_FORMAT_R8G8B8A8_SRGB;// TexFormatToVkFormat(Format);
+		Result->TextureFormat = Format;
+		Result->Width = Width;
+		Result->Height = Height;
+		Result->TextureFlags = Flags;
 
-		// Create staging buffer
-		CreateBuffer
-		(
-			ImageSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			Result->StagingBuffer, Result->StagingBufferMemory
-		);
-
-		void* MappedData;
-		vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+		// Create staging buffer and write initial data to it
+		if(Flags & TEXTURE_USAGE_WRITE)
 		{
-			std::memcpy(MappedData, Data, ImageSize);
+			CreateBuffer
+			(
+				ImageSize,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				Result->StagingBuffer, Result->StagingBufferMemory
+			);
+
+			void* MappedData;
+			vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+			{
+				std::memcpy(MappedData, Data, ImageSize);
+			}
+			vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
 		}
-		vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
 
 		VkImageCreateInfo ImageCreate{};
 		ImageCreate.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -3295,12 +2917,26 @@ namespace llrm
 		ImageCreate.extent.depth = 1;
 		ImageCreate.mipLevels = 1;
 		ImageCreate.arrayLayers = 1;
-		ImageCreate.format = ImageFormat;
+		ImageCreate.format = AttachmentFormatToVkFormat(Result->TextureFormat);
 		ImageCreate.tiling = VK_IMAGE_TILING_OPTIMAL;
 		ImageCreate.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		ImageCreate.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		ImageCreate.samples = VK_SAMPLE_COUNT_1_BIT;
 		ImageCreate.flags = 0;
+		ImageCreate.usage = 0;
+
+		// Set usage based on flags
+		if (Flags & TEXTURE_USAGE_WRITE)
+			ImageCreate.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		if (Flags & TEXTURE_USAGE_SAMPLE)
+			ImageCreate.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		if(Flags & TEXTURE_USAGE_RT)
+		{
+			if(IsColorFormat(Format))
+				ImageCreate.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+			else
+				ImageCreate.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		}
 
 		if (vkCreateImage(GVulkanContext.Device, &ImageCreate, nullptr, &Result->TextureImage) != VK_SUCCESS)
 		{
@@ -3324,54 +2960,69 @@ namespace llrm
 
 		vkBindImageMemory(GVulkanContext.Device, Result->TextureImage, Result->TextureMemory, 0);
 
-		// Transition image to upload data to
-		ImmediateSubmitAndWait([&](CommandBuffer Buf)
+		// Write texture data
+		if(Flags & TEXTURE_USAGE_WRITE)
 		{
-			TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::TransferDestination);
-		});
-
-		ImmediateSubmitAndWait([&](CommandBuffer Buf)
-		{
-			ForEachCmdBuffer(Buf, [&](VkCommandBuffer Buf, int32_t ImageIndex)
+			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
-				VkBufferImageCopy ImageCopy{};
-				ImageCopy.bufferOffset = 0;
-				ImageCopy.bufferRowLength = 0;
-				ImageCopy.bufferImageHeight = 0;
 
-				ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-				ImageCopy.imageSubresource.mipLevel = 0;
-				ImageCopy.imageSubresource.baseArrayLayer = 0;
-				ImageCopy.imageSubresource.layerCount = 1;
-
-				ImageCopy.imageOffset = { 0, 0, 0 };
-				ImageCopy.imageExtent = { Width, Height, 1 };
-
-				// Copy buffer data to image
-				vkCmdCopyBufferToImage
-				(
-					Buf,
-					Result->StagingBuffer,
-					Result->TextureImage,
-					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-					1,
-					&ImageCopy
-				);
+				TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::TransferDestination);
 			});
-		});
 
-		// Transition image to be shader read optimal
-		ImmediateSubmitAndWait([&](CommandBuffer Buf)
+			ImmediateSubmitAndWait([&](CommandBuffer Buf)
+			{
+				ForEachCmdBuffer(Buf, [&](VkCommandBuffer Buf, int32_t ImageIndex)
+					{
+						VkBufferImageCopy ImageCopy{};
+						ImageCopy.bufferOffset = 0;
+						ImageCopy.bufferRowLength = 0;
+						ImageCopy.bufferImageHeight = 0;
+
+						ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+						ImageCopy.imageSubresource.mipLevel = 0;
+						ImageCopy.imageSubresource.baseArrayLayer = 0;
+						ImageCopy.imageSubresource.layerCount = 1;
+
+						ImageCopy.imageOffset = { 0, 0, 0 };
+						ImageCopy.imageExtent = { Width, Height, 1 };
+
+						// Copy buffer data to image
+						vkCmdCopyBufferToImage
+						(
+							Buf,
+							Result->StagingBuffer,
+							Result->TextureImage,
+							VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							1,
+							&ImageCopy
+						);
+					});
+			});
+
+			// Transition image to be shader read optimal
+			ImmediateSubmitAndWait([&](CommandBuffer Buf)
+			{
+				TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, AttachmentUsage::ShaderRead);
+			});
+		}
+		else if(Flags & TEXTURE_USAGE_RT) // Can't be an RT and a CPU write at the same time
 		{
-			TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, AttachmentUsage::ShaderRead);
-		});
+			// Transition image to be an attachment
+			ImmediateSubmitAndWait([&](CommandBuffer Buf)
+			{
+				if(IsColorFormat(Format))
+					TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::ColorAttachment);
+				else
+					TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::DepthStencilAttachment);
+			});
+		}
 
 		// Create image view
 		VkImageViewCreateInfo ViewInfo{};
 		ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		ViewInfo.image = Result->TextureImage;
 		ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		ViewInfo.format = ImageFormat;
+		ViewInfo.format = AttachmentFormatToVkFormat(Format);
 		ViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		ViewInfo.subresourceRange.baseMipLevel = 0;
 		ViewInfo.subresourceRange.levelCount = 1;
@@ -3384,28 +3035,32 @@ namespace llrm
 			return nullptr;
 		}
 
-		VkSamplerCreateInfo SamplerInfo{};
-		SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		SamplerInfo.magFilter = VK_FILTER_NEAREST; // TODO: make an option
-		SamplerInfo.minFilter = VK_FILTER_NEAREST; // TODO: make an option
-		SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		SamplerInfo.anisotropyEnable = VK_FALSE; // todo: enable anisotropy
-		SamplerInfo.maxAnisotropy = 0;
-		SamplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-		SamplerInfo.unnormalizedCoordinates = VK_FALSE;
-		SamplerInfo.compareEnable = VK_FALSE;
-		SamplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-		SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-		SamplerInfo.mipLodBias = 0.0f;
-		SamplerInfo.minLod = 0.0f;
-		SamplerInfo.maxLod = 0.0f;
-
-		if (vkCreateSampler(GVulkanContext.Device, &SamplerInfo, nullptr, &Result->TextureSampler) != VK_SUCCESS)
+		if (Flags & TEXTURE_USAGE_SAMPLE) // Can't be an RT and a CPU write at the same time
 		{
-			//GLog->critical("Failed to create vulkan sampler");
-			return nullptr;
+
+			VkSamplerCreateInfo SamplerInfo{};
+			SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+			SamplerInfo.magFilter = VK_FILTER_NEAREST; // TODO: make an option
+			SamplerInfo.minFilter = VK_FILTER_NEAREST; // TODO: make an option
+			SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			SamplerInfo.anisotropyEnable = VK_FALSE; // todo: enable anisotropy
+			SamplerInfo.maxAnisotropy = 0;
+			SamplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+			SamplerInfo.unnormalizedCoordinates = VK_FALSE;
+			SamplerInfo.compareEnable = VK_FALSE;
+			SamplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+			SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+			SamplerInfo.mipLodBias = 0.0f;
+			SamplerInfo.minLod = 0.0f;
+			SamplerInfo.maxLod = 0.0f;
+
+			if (vkCreateSampler(GVulkanContext.Device, &SamplerInfo, nullptr, &Result->TextureSampler) != VK_SUCCESS)
+			{
+				//GLog->critical("Failed to create vulkan sampler");
+				return nullptr;
+			}
 		}
 
 		RECORD_RESOURCE_ALLOC(Result)
@@ -3413,35 +3068,21 @@ namespace llrm
 		return Result;
 	}
 
-	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo)
+	FrameBuffer CreateFrameBuffer(const FrameBufferCreateInfo& CreateInfo)
 	{
-		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo->TargetGraph);
+		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo.Target);
 
 		VulkanFrameBuffer* Result = new VulkanFrameBuffer;
-		Result->AttachmentWidth = CreateInfo->Width;
-		Result->AttachmentHeight = CreateInfo->Height;
+		Result->AttachmentWidth = CreateInfo.Width;
+		Result->AttachmentHeight = CreateInfo.Height;
 		Result->CreatedFor = VkRenderGraph->RenderPass;
 
-		for (uint32_t ColorAttach = 0; ColorAttach < CreateInfo->ColorAttachmentCount; ColorAttach++)
-			Result->ColorAttachmentDescriptions.push_back(CreateInfo->ColorAttachmentDescriptions[ColorAttach]);
-
-		if (CreateInfo->bHasDepthStencilAttachment)
+		for(Texture Attach : CreateInfo.Attachments)
 		{
-			Result->bHasDepthStencilAttachment = true;
-			Result->DepthStencilAttachmentDesc = CreateInfo->DepthStencilDescription;
+			Result->AllAttachments.push_back(static_cast<VulkanTexture*>(Attach));
 		}
 
-		if (!CreateFrameBufferImages(Result, Result->ColorAttachmentDescriptions, CreateInfo->Width, CreateInfo->Height))
-		{
-			return nullptr;
-		}
-
-		if (!CreateFrameBufferSamplers(Result, static_cast<uint32_t>(Result->ColorAttachmentImages.size())))
-		{
-			return nullptr;
-		}
-
-		if (!CreateFrameBufferResource(Result, VkRenderGraph->RenderPass, CreateInfo->Width, CreateInfo->Height))
+		if (!CreateFrameBufferResource(Result, VkRenderGraph->RenderPass, CreateInfo.Width, CreateInfo.Height))
 		{
 			return nullptr;
 		}
@@ -3584,9 +3225,6 @@ namespace llrm
 
 		vkDeviceWaitIdle(GVulkanContext.Device);
 
-		DestroyFramebufferImages(VkFbo);
-		DestroyFramebufferSamplers(VkFbo);
-
 		vkDestroyFramebuffer(GVulkanContext.Device, VkFbo->VulkanFbo, nullptr);
 
 		delete VkFbo;
@@ -3654,13 +3292,19 @@ namespace llrm
 		VulkanTexture* VkTex = static_cast<VulkanTexture*>(Image);
 
 		vkFreeMemory(GVulkanContext.Device, VkTex->TextureMemory, nullptr);
-		vkFreeMemory(GVulkanContext.Device, VkTex->StagingBufferMemory, nullptr);
-
 		vkDestroyImage(GVulkanContext.Device, VkTex->TextureImage, nullptr);
-		vkDestroyBuffer(GVulkanContext.Device, VkTex->StagingBuffer, nullptr);
-
 		vkDestroyImageView(GVulkanContext.Device, VkTex->TextureImageView, nullptr);
-		vkDestroySampler(GVulkanContext.Device, VkTex->TextureSampler, nullptr);
+
+		if(VkTex->TextureFlags & TEXTURE_USAGE_WRITE)
+		{
+			vkFreeMemory(GVulkanContext.Device, VkTex->StagingBufferMemory, nullptr);
+			vkDestroyBuffer(GVulkanContext.Device, VkTex->StagingBuffer, nullptr);
+		}
+
+		if (VkTex->TextureFlags & TEXTURE_USAGE_SAMPLE)
+		{
+			vkDestroySampler(GVulkanContext.Device, VkTex->TextureSampler, nullptr);
+		}
 
 		REMOVE_RESOURCE_ALLOC(VkTex)
 

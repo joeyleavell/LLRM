@@ -7,6 +7,10 @@ struct GLFWwindow;
 
 namespace llrm
 {
+	const uint64_t TEXTURE_USAGE_WRITE = 1 << 1; // We can upload data to this texture from the CPU
+	const uint64_t TEXTURE_USAGE_SAMPLE = 1 << 2; // We will sample this texture in a shader
+	const uint64_t TEXTURE_USAGE_RT = 1 << 3; // Used as a render target (color, depth, etc.)
+
 	// Rendering primitives
 	typedef void* Pipeline;
 	typedef void* SwapChain;
@@ -67,11 +71,6 @@ namespace llrm
 	{
 		Vertex,
 		Fragment
-	};
-
-	enum class TextureFormat
-	{
-		UINT32_R8G8B8A8
 	};
 
 	struct VertexAttribute
@@ -227,19 +226,14 @@ namespace llrm
 
 	struct FrameBufferCreateInfo
 	{
-		uint32_t							Width;
-		uint32_t							Height;
-		uint32_t							ColorAttachmentCount;
-		FramebufferAttachmentDescription*	ColorAttachmentDescriptions;
-
-		// Depth/stencil info
-		bool								bHasDepthStencilAttachment;
-		FramebufferAttachmentDescription    DepthStencilDescription;
+		uint32_t				Width;
+		uint32_t				Height;
+		std::vector<Texture>	Attachments;
 
 		/**
 		 * The render graph that this frame buffer is targeting
 		 */ 
-		RenderGraph							TargetGraph;
+		RenderGraph				Target;
 	};
 
 	enum class ClearType : uint8_t
@@ -273,6 +267,11 @@ namespace llrm
 	};
 
 	inline bool IsDepthFormat(AttachmentFormat Format)
+	{
+		return Format == AttachmentFormat::D24_UNORM_S8_UINT;
+	}
+
+	inline bool IsStencilFormat(AttachmentFormat Format)
 	{
 		return Format == AttachmentFormat::D24_UNORM_S8_UINT;
 	}
@@ -331,13 +330,14 @@ namespace llrm
 	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo& CreateInfo);
 	Pipeline CreatePipeline(const PipelineState& CreateInfo);
 	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo& CreateInfo);
-	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo);
+	FrameBuffer CreateFrameBuffer(const FrameBufferCreateInfo& CreateInfo);
 	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
 	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data = nullptr);
 	CommandBuffer CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo);
-	Texture CreateTexture(uint64_t ImageSize, TextureFormat Format, uint32_t Width, uint32_t Height, void* Data);
+
+	Texture CreateTexture(AttachmentFormat Format, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
 
 	// Destroy primitives
 	void DestroyVertexBuffer(VertexBuffer VertexBuffer);
@@ -347,6 +347,7 @@ namespace llrm
 	void DestroyResourceLayout(ResourceLayout Layout);
 	void DestroyResourceSet(ResourceSet Resources);
 	void DestroyTexture(Texture Image);
+	void DestroyFrameBuffer(FrameBuffer FrameBuffer);
 	void DestroyProgram(ShaderProgram Shader);
 	void DestroySwapChain(SwapChain Swap);
 	void DestroySurface(Surface Surface);
@@ -367,26 +368,19 @@ namespace llrm
 
 	// Frame buffer operations
 	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height) ;
-	void ResizeFrameBuffer(FrameBuffer Fbo, uint32_t NewWidth, uint32_t NewHeight) ;
 
 	// Resource set operations
 	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
 
 	void UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding) ;
 
-	// deprecated, use UpdateAttachmentResources instead
-	void UpdateAttachmentResource(ResourceSet Resources, SwapChain Target, FrameBuffer SrcBuffer, uint32_t AttachmentIndex, uint32_t Binding) ;
-	void UpdateAttachmentResources(ResourceSet Resources, SwapChain Target, FrameBuffer* Buffers, uint32_t BufferCount, uint32_t AttachmentIndex, uint32_t Binding);
-
-	void ReadFramebufferAttachment(FrameBuffer SrcBuffer, uint32_t Attachment, void* Dst, uint64_t BufferSize);
+	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);
 
 	// Command buffer operations
 	void SubmitCommandBuffer(CommandBuffer Buffer, bool bWait = false, Fence WaitFence = nullptr);
 	void Reset(CommandBuffer Buf);
 	void Begin(CommandBuffer Buf);
 	void End(CommandBuffer Buf);
-	void TransitionFrameBufferColorAttachment(CommandBuffer Buf, FrameBuffer Source, uint32_t AttachmentIndex, AttachmentUsage Old, AttachmentUsage New);
-	void TransitionFrameBufferDepthStencilAttachment(CommandBuffer Buf, FrameBuffer Source, AttachmentUsage Old, AttachmentUsage New);
 	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old, AttachmentUsage New);
 	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info = {});
 	void EndRenderGraph(CommandBuffer Buf);

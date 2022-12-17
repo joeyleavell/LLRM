@@ -81,11 +81,21 @@ int main()
 		0
 	});
 
+	// Create frame buffer attachments
+	llrm::Texture ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, 800, 600, llrm::TEXTURE_USAGE_RT);
+	llrm::FrameBuffer Fbo = llrm::CreateFrameBuffer({
+		800, 600,
+		{ColorAttachment},
+		Graph
+	});
+
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 	}
 
+	llrm::DestroyFrameBuffer(Fbo);
+	llrm::DestroyTexture(ColorAttachment);
 	llrm::DestroyPipeline(Pipe);
 	llrm::DestroyResourceLayout(ResourceLayout);
 	llrm::DestroyRenderGraph(Graph);
