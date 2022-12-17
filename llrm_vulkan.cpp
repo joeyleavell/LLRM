@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cassert>
+#include <functional>
 #include <iostream>
 
 #include "llrm.h"
@@ -561,10 +564,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
 }
 
 
-inline int32_t FindMemoryType(uint32_t TypeFilter, VkMemoryPropertyFlags Properties)
+inline int32_t FindMemoryType(VkPhysicalDevice PhysicalDevice, uint32_t TypeFilter, VkMemoryPropertyFlags Properties)
 {
 	VkPhysicalDeviceMemoryProperties MemProperties;
-	vkGetPhysicalDeviceMemoryProperties(GVulkanInfo.PhysicalDevice, &MemProperties);
+	vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemProperties);
 
 	for (uint32_t MemTypeIndex = 0; MemTypeIndex < MemProperties.memoryTypeCount; MemTypeIndex++)
 	{
@@ -579,7 +582,7 @@ inline int32_t FindMemoryType(uint32_t TypeFilter, VkMemoryPropertyFlags Propert
 	return -1;
 }
 
-inline void CreateDsc()
+/*inline void CreateDsc(VkDevice Device)
 {
 	std::vector<VkDescriptorSetLayoutBinding> Bindings;
 
@@ -600,11 +603,11 @@ inline void CreateDsc()
 	CreateInfo.pBindings = Bindings.data();
 
 	VkDescriptorSetLayout Layout;
-	if (vkCreateDescriptorSetLayout(GVulkanInfo.Device, &CreateInfo, nullptr, &Layout) != VK_SUCCESS)
+	if (vkCreateDescriptorSetLayout(Device, &CreateInfo, nullptr, &Layout) != VK_SUCCESS)
 	{
 		return;
 	}
-}
+}*/
 
 namespace llrm
 {
@@ -874,13 +877,12 @@ namespace llrm
 	}
 
 
-	std::function<void(CommandBuffer Cmd, std::function<void(VkCommandBuffer&, int32_t)>)> ForEachCmdBuffer =
-		[](CommandBuffer Cmd, std::function<void(VkCommandBuffer&, int32_t ImageIndex)> Inner)
+	void ForEachCmdBuffer(CommandBuffer Cmd, std::function<void(VkCommandBuffer&, int32_t ImageIndex)> Inner)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Cmd);
 		if (VkCmd->bTargetSwapChain && VkCmd->bDynamic)
 		{
-			Inner(VkCmd->CmdBuffers[GVulkanInfo.CurrentSwapChain->AcquiredImageIndex], GVulkanInfo.CurrentSwapChain->AcquiredImageIndex);
+			Inner(VkCmd->CmdBuffers[GVulkanContext.CurrentSwapChain->AcquiredImageIndex], GVulkanContext.CurrentSwapChain->AcquiredImageIndex);
 		}
 		else
 		{
@@ -919,20 +921,20 @@ namespace llrm
 		case AttachmentFormat::DepthStencil:
 			VkFormat DepthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 			VkFormatProperties FormatProps;
-			vkGetPhysicalDeviceFormatProperties(GVulkanInfo.PhysicalDevice, DepthStencilFormat, &FormatProps);
+			vkGetPhysicalDeviceFormatProperties(GVulkanContext.PhysicalDevice, DepthStencilFormat, &FormatProps);
 			VkFormatFeatureFlags RequiredFlags = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
 			// Assume optimal tiling, create assertion for our required flags
 			if ((FormatProps.optimalTilingFeatures & RequiredFlags) != RequiredFlags)
 			{
-				GLog->error("Physical device does not support depth/stencil attachment");
+				//GLog->error("Physical device does not support depth/stencil attachment");
 				std::abort();
 			}
 
 			return DepthStencilFormat;
 		}
 
-		GLog->error("Attachment not found");
+		//GLog->error("Attachment not found");
 		return VK_FORMAT_B8G8R8A8_SRGB;
 	}
 
@@ -1013,7 +1015,7 @@ namespace llrm
 			return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
 		}
 
-		GLog->error("Blend factor not found");
+		//GLog->error("Blend factor not found");
 		return VK_BLEND_FACTOR_ONE;
 	}
 
@@ -1048,9 +1050,9 @@ namespace llrm
 			ColorAttachCreateInfo.flags = 0;
 
 			VkImage ResultImage;
-			if (vkCreateImage(GVulkanInfo.Device, &ColorAttachCreateInfo, nullptr, &ResultImage) != VK_SUCCESS)
+			if (vkCreateImage(GVulkanContext.Device, &ColorAttachCreateInfo, nullptr, &ResultImage) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
+				//GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
 				return false;
 			}
 
@@ -1059,13 +1061,13 @@ namespace llrm
 
 			// Create device memory
 			VkMemoryRequirements ImageMemRequirements;
-			vkGetImageMemoryRequirements(GVulkanInfo.Device, ResultImage, &ImageMemRequirements);
+			vkGetImageMemoryRequirements(GVulkanContext.Device, ResultImage, &ImageMemRequirements);
 
 			// This memory will never be accessed by the host, so keep it device local
-			int32_t MemTypeIndex = FindMemoryType(ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			int32_t MemTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			if (MemTypeIndex < 0)
 			{
-				GLog->critical("Failed to find memory type while creating device memory for image");
+				//GLog->critical("Failed to find memory type while creating device memory for image");
 				return false;
 			}
 
@@ -1075,16 +1077,16 @@ namespace llrm
 			ImageAllocInfo.memoryTypeIndex = MemTypeIndex;
 
 			VkDeviceMemory ColorAttachMemory;
-			if (vkAllocateMemory(GVulkanInfo.Device, &ImageAllocInfo, nullptr, &ColorAttachMemory) != VK_SUCCESS)
+			if (vkAllocateMemory(GVulkanContext.Device, &ImageAllocInfo, nullptr, &ColorAttachMemory) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create device memory for framebuffer color attachment");
+				//GLog->critical("Failed to create device memory for framebuffer color attachment");
 				return false;
 			}
 
 			DstFbo->ColorAttachmentMemory.push_back(ColorAttachMemory);
 
 			// Bind the memory to the image
-			vkBindImageMemory(GVulkanInfo.Device, ResultImage, ColorAttachMemory, 0);
+			vkBindImageMemory(GVulkanContext.Device, ResultImage, ColorAttachMemory, 0);
 
 			// Create an image view for the newly created image
 			VkImageViewCreateInfo ImageViewCreateInfo{};
@@ -1099,9 +1101,9 @@ namespace llrm
 			ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
 			VkImageView ColorAttachmentImageView;
-			if (vkCreateImageView(GVulkanInfo.Device, &ImageViewCreateInfo, nullptr, &ColorAttachmentImageView) != VK_SUCCESS)
+			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &ColorAttachmentImageView) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
+				//GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
 				return false;
 			}
 
@@ -1110,9 +1112,9 @@ namespace llrm
 
 			// Immediately transition image to correct layout
 			ImmediateSubmitAndWait([=](CommandBuffer Cmd)
-				{
-					GRenderAPI->TransitionFrameBufferColorAttachment(Cmd, DstFbo, ColorAttachmentIndex, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
-				});
+			{
+				TransitionFrameBufferColorAttachment(Cmd, DstFbo, ColorAttachmentIndex, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
+			});
 		}
 
 		// Create optional depth stencil attachment
@@ -1140,21 +1142,21 @@ namespace llrm
 			DepthStencilCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 			DepthStencilCreateInfo.flags = 0;
 
-			if (vkCreateImage(GVulkanInfo.Device, &DepthStencilCreateInfo, nullptr, &DstFbo->DepthStencilImage) != VK_SUCCESS)
+			if (vkCreateImage(GVulkanContext.Device, &DepthStencilCreateInfo, nullptr, &DstFbo->DepthStencilImage) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
+				//GLog->critical("Failed to create color attachment image for Vulkan framebuffer");
 				return false;
 			}
 
 			// Create device memory
 			VkMemoryRequirements ImageMemRequirements;
-			vkGetImageMemoryRequirements(GVulkanInfo.Device, DstFbo->DepthStencilImage, &ImageMemRequirements);
+			vkGetImageMemoryRequirements(GVulkanContext.Device, DstFbo->DepthStencilImage, &ImageMemRequirements);
 
 			// This memory will never be accessed by the host, so keep it device local
-			int32_t MemTypeIndex = FindMemoryType(ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			int32_t MemTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, ImageMemRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 			if (MemTypeIndex < 0)
 			{
-				GLog->critical("Failed to find memory type while creating device memory for image");
+				//GLog->critical("Failed to find memory type while creating device memory for image");
 				return false;
 			}
 
@@ -1163,14 +1165,14 @@ namespace llrm
 			ImageAllocInfo.allocationSize = ImageMemRequirements.size;
 			ImageAllocInfo.memoryTypeIndex = MemTypeIndex;
 
-			if (vkAllocateMemory(GVulkanInfo.Device, &ImageAllocInfo, nullptr, &DstFbo->DepthStencilMemory) != VK_SUCCESS)
+			if (vkAllocateMemory(GVulkanContext.Device, &ImageAllocInfo, nullptr, &DstFbo->DepthStencilMemory) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create device memory for framebuffer color attachment");
+				//GLog->critical("Failed to create device memory for framebuffer color attachment");
 				return false;
 			}
 
 			// Bind the memory to the image
-			vkBindImageMemory(GVulkanInfo.Device, DstFbo->DepthStencilImage, DstFbo->DepthStencilMemory, 0);
+			vkBindImageMemory(GVulkanContext.Device, DstFbo->DepthStencilImage, DstFbo->DepthStencilMemory, 0);
 
 			// Create an image view for the newly created image
 			VkImageViewCreateInfo ImageViewCreateInfo{};
@@ -1184,9 +1186,9 @@ namespace llrm
 			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
 			ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
-			if (vkCreateImageView(GVulkanInfo.Device, &ImageViewCreateInfo, nullptr, &DstFbo->DepthStencilImageView) != VK_SUCCESS)
+			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &DstFbo->DepthStencilImageView) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
+				//GLog->critical("Failed to create image view for vulkan framebuffer color attachment");
 				return false;
 			}
 
@@ -1194,9 +1196,9 @@ namespace llrm
 
 			// Immediately transition image to correct layout
 			ImmediateSubmitAndWait([=](CommandBuffer Cmd)
-				{
-					GRenderAPI->TransitionFrameBufferDepthStencilAttachment(Cmd, DstFbo, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
-				});
+			{
+				TransitionFrameBufferDepthStencilAttachment(Cmd, DstFbo, AttachmentUsage::Undefined, AttachDesc.InitialImageUsage);
+			});
 		}
 
 		return true;
@@ -1228,9 +1230,9 @@ namespace llrm
 			SampleCreateInfo.maxLod = 0.0f;
 
 			VkSampler ResultSampler;
-			if (vkCreateSampler(GVulkanInfo.Device, &SampleCreateInfo, nullptr, &ResultSampler) != VK_SUCCESS)
+			if (vkCreateSampler(GVulkanContext.Device, &SampleCreateInfo, nullptr, &ResultSampler) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create sampler when creating vulkan framebuffer");
+				//GLog->critical("Failed to create sampler when creating vulkan framebuffer");
 				return false;
 			}
 
@@ -1252,9 +1254,9 @@ namespace llrm
 		FrameBufferCreateInfo.height = Height;
 		FrameBufferCreateInfo.layers = 1;
 
-		if (vkCreateFramebuffer(GVulkanInfo.Device, &FrameBufferCreateInfo, nullptr, &DstFbo->VulkanFbo) != VK_SUCCESS)
+		if (vkCreateFramebuffer(GVulkanContext.Device, &FrameBufferCreateInfo, nullptr, &DstFbo->VulkanFbo) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create vulkan framebuffer resource");
+			//GLog->critical("Failed to create vulkan framebuffer resource");
 			return false;
 		}
 
@@ -1264,25 +1266,25 @@ namespace llrm
 	void DestroyFramebufferImages(VulkanFrameBuffer* VkFbo)
 	{
 		std::for_each(VkFbo->ColorAttachmentImageViews.begin(), VkFbo->ColorAttachmentImageViews.end(), [](const VkImageView& ImageView)
-			{
-				vkDestroyImageView(GVulkanInfo.Device, ImageView, nullptr);
-			});
+		{
+			vkDestroyImageView(GVulkanContext.Device, ImageView, nullptr);
+		});
 
 		std::for_each(VkFbo->ColorAttachmentMemory.begin(), VkFbo->ColorAttachmentMemory.end(), [](const VkDeviceMemory& ImageMemory)
-			{
-				vkFreeMemory(GVulkanInfo.Device, ImageMemory, nullptr);
-			});
+		{
+			vkFreeMemory(GVulkanContext.Device, ImageMemory, nullptr);
+		});
 
 		std::for_each(VkFbo->ColorAttachmentImages.begin(), VkFbo->ColorAttachmentImages.end(), [](const VkImage& Image)
-			{
-				vkDestroyImage(GVulkanInfo.Device, Image, nullptr);
-			});
+		{
+			vkDestroyImage(GVulkanContext.Device, Image, nullptr);
+		});
 
 		if (VkFbo->bHasDepthStencilAttachment)
 		{
-			vkDestroyImage(GVulkanInfo.Device, VkFbo->DepthStencilImage, nullptr);
-			vkFreeMemory(GVulkanInfo.Device, VkFbo->DepthStencilMemory, nullptr);
-			vkDestroyImageView(GVulkanInfo.Device, VkFbo->DepthStencilImageView, nullptr);
+			vkDestroyImage(GVulkanContext.Device, VkFbo->DepthStencilImage, nullptr);
+			vkFreeMemory(GVulkanContext.Device, VkFbo->DepthStencilMemory, nullptr);
+			vkDestroyImageView(GVulkanContext.Device, VkFbo->DepthStencilImageView, nullptr);
 		}
 
 		VkFbo->ColorAttachmentImages.clear();
@@ -1294,9 +1296,9 @@ namespace llrm
 	void DestroyFramebufferSamplers(VulkanFrameBuffer* VkFbo)
 	{
 		std::for_each(VkFbo->ColorAttachmentSamplers.begin(), VkFbo->ColorAttachmentSamplers.end(), [](const VkSampler& Sampler)
-			{
-				vkDestroySampler(GVulkanInfo.Device, Sampler, nullptr);
-			});
+		{
+			vkDestroySampler(GVulkanContext.Device, Sampler, nullptr);
+		});
 
 		VkFbo->ColorAttachmentSamplers.clear();
 	}
@@ -1310,8 +1312,8 @@ namespace llrm
 			ViewportHeight = VkCmd->CurrentSwapChain->SwapChainExtent.height;
 		else if (VkCmd->CurrentFbo)
 			ViewportHeight = VkCmd->CurrentFbo->AttachmentHeight;
-		else
-			GLog->error("Invalid swap chain");
+		//else
+		//	GLog->error("Invalid swap chain");
 
 		return ViewportHeight;
 	}
@@ -1324,60 +1326,60 @@ namespace llrm
 		VboCreateInfo.usage = BufferUsage;
 		VboCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-		if (vkCreateBuffer(GVulkanInfo.Device, &VboCreateInfo, nullptr, &OutBuffer) != VK_SUCCESS)
+		if (vkCreateBuffer(GVulkanContext.Device, &VboCreateInfo, nullptr, &OutBuffer) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create vulkan buffer");
+			//GLog->critical("Failed to create vulkan buffer");
 			return false;
 		}
 
 		VkMemoryRequirements BufferMemRequirements{};
-		vkGetBufferMemoryRequirements(GVulkanInfo.Device, OutBuffer, &BufferMemRequirements);
+		vkGetBufferMemoryRequirements(GVulkanContext.Device, OutBuffer, &BufferMemRequirements);
 
 		VkMemoryAllocateInfo AllocInfo{};
 		AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		AllocInfo.allocationSize = BufferMemRequirements.size;
-		AllocInfo.memoryTypeIndex = FindMemoryType(BufferMemRequirements.memoryTypeBits, MemPropertyFlags);
+		AllocInfo.memoryTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, BufferMemRequirements.memoryTypeBits, MemPropertyFlags);
 
-		if (vkAllocateMemory(GVulkanInfo.Device, &AllocInfo, nullptr, &OutBufferMemory) != VK_SUCCESS)
+		if (vkAllocateMemory(GVulkanContext.Device, &AllocInfo, nullptr, &OutBufferMemory) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to allocate vulkan memory");
+			//GLog->critical("Failed to allocate vulkan memory");
 			return false;
 		}
 
 		// Bind the memory
-		if (vkBindBufferMemory(GVulkanInfo.Device, OutBuffer, OutBufferMemory, 0) != VK_SUCCESS)
+		if (vkBindBufferMemory(GVulkanContext.Device, OutBuffer, OutBufferMemory, 0) != VK_SUCCESS)
 		{
-			GLog->info("Failed to bind memory to vulkan buffer");
+			//GLog->info("Failed to bind memory to vulkan buffer");
 			return false;
 		}
 
 		return true;
 	}
 
-	void VulkanRenderingInterface::Reset(CommandBuffer Buf)
+	void Reset(CommandBuffer Buf)
 	{
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				vkResetCommandBuffer(CmdBuffer, 0);
-			});
+		{
+			vkResetCommandBuffer(CmdBuffer, 0);
+		});
 	}
 
-	void VulkanRenderingInterface::Begin(CommandBuffer Buf)
+	void Begin(CommandBuffer Buf)
 	{
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		{
+			VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
+
+			VkCommandBufferBeginInfo BeginInfo{};
+			BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			BeginInfo.pInheritanceInfo = nullptr;
+			BeginInfo.flags = VkCmd->bOneTimeUse ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
+
+			if (vkBeginCommandBuffer(CmdBuffer, &BeginInfo) != VK_SUCCESS)
 			{
-				VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
-
-				VkCommandBufferBeginInfo BeginInfo{};
-				BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-				BeginInfo.pInheritanceInfo = nullptr;
-				BeginInfo.flags = VkCmd->bOneTimeUse ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
-
-				if (vkBeginCommandBuffer(CmdBuffer, &BeginInfo) != VK_SUCCESS)
-				{
-					GLog->critical("Failed to begin recording vulkan command buffer");
-				}
-			});
+				//GLog->critical("Failed to begin recording vulkan command buffer");
+			}
+		});
 	}
 
 	void TransitionCmd(VkCommandBuffer Buf, VkImage Img, VkImageAspectFlags AspectFlags, AttachmentUsage Old, AttachmentUsage New)
@@ -1422,7 +1424,7 @@ namespace llrm
 		}
 		else
 		{
-			GLog->critical("Vulkan image layout transition not supported");
+			//GLog->critical("Vulkan image layout transition not supported");
 			return;
 		}
 
@@ -1453,7 +1455,7 @@ namespace llrm
 		}
 		else
 		{
-			GLog->critical("Vulkan image layout transition not supported");
+			//GLog->critical("Vulkan image layout transition not supported");
 			return;
 		}
 
@@ -1469,45 +1471,45 @@ namespace llrm
 		);
 	}
 
-	void VulkanRenderingInterface::TransitionFrameBufferColorAttachment(CommandBuffer Buf, FrameBuffer Source, uint32_t AttachmentIndex,
+	void TransitionFrameBufferColorAttachment(CommandBuffer Buf, FrameBuffer Source, uint32_t AttachmentIndex,
 		AttachmentUsage Old, AttachmentUsage New)
 	{
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Source);
 
 		ForEachCmdBuffer(Buf, [Old, New, VkFbo, AttachmentIndex](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				TransitionCmd(CmdBuffer, VkFbo->ColorAttachmentImages[AttachmentIndex], VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
-			});
+		{
+			TransitionCmd(CmdBuffer, VkFbo->ColorAttachmentImages[AttachmentIndex], VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
+		});
 	}
 
-	void VulkanRenderingInterface::TransitionFrameBufferDepthStencilAttachment(CommandBuffer Buf, FrameBuffer Source,
+	void TransitionFrameBufferDepthStencilAttachment(CommandBuffer Buf, FrameBuffer Source,
 		AttachmentUsage Old, AttachmentUsage New)
 	{
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Source);
 
 		ForEachCmdBuffer(Buf, [Old, New, VkFbo](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				TransitionCmd(CmdBuffer, VkFbo->DepthStencilImage, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, Old, New);
-			});
+		{
+			TransitionCmd(CmdBuffer, VkFbo->DepthStencilImage, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, Old, New);
+		});
 	}
 
-	void VulkanRenderingInterface::TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old,
+	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old,
 		AttachmentUsage New)
 	{
 		VulkanTexture* VkTexture = static_cast<VulkanTexture*>(Image);
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				TransitionCmd(CmdBuffer, VkTexture->TextureImage, VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
-			});
+		{
+			TransitionCmd(CmdBuffer, VkTexture->TextureImage, VK_IMAGE_ASPECT_COLOR_BIT, Old, New);
+		});
 	}
 
-	void VulkanRenderingInterface::End(CommandBuffer Buf)
+	void End(CommandBuffer Buf)
 	{
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				vkEndCommandBuffer(CmdBuffer);
-			});
+		{
+			vkEndCommandBuffer(CmdBuffer);
+		});
 	}
 
 	void GetVkClearValues(ClearValue* ClearValues, uint32_t ValueCount, std::vector<VkClearValue>& OutVkValues)
@@ -1518,7 +1520,7 @@ namespace llrm
 			VkClearValue ClearValue{};
 			if (CV.Clear == ClearType::Float)
 			{
-				float ClearFloats[4] = { CV.FloatClearValue.x, CV.FloatClearValue.y, CV.FloatClearValue.z, CV.FloatClearValue.w };
+				float ClearFloats[4] = { CV.FloatClearValue[0], CV.FloatClearValue[1], CV.FloatClearValue[3], CV.FloatClearValue[4]};
 				memcpy(ClearValue.color.float32, ClearFloats, sizeof(ClearFloats));
 			}
 			else if (CV.Clear == ClearType::SInt)
@@ -1532,7 +1534,7 @@ namespace llrm
 		}
 	}
 
-	void VulkanRenderingInterface::BeginRenderGraph(CommandBuffer Buf, SwapChain Target, RenderGraphInfo Info)
+	void BeginRenderGraph(CommandBuffer Buf, SwapChain Target, RenderGraphInfo Info)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
@@ -1540,25 +1542,25 @@ namespace llrm
 		VkCmd->CurrentSwapChain = VkSwap;
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkRenderPassBeginInfo RpBeginInfo{};
-				RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-				RpBeginInfo.renderPass = VkSwap->MainPass;
-				RpBeginInfo.framebuffer = VkSwap->FrameBuffers[ImageIndex]; // This means the cmd buffer needs to be re-created when the swap chain gets recreated
-				RpBeginInfo.renderArea.offset = { 0, 0 };
-				RpBeginInfo.renderArea.extent = VkSwap->SwapChainExtent;
+		{
+			VkRenderPassBeginInfo RpBeginInfo{};
+			RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			RpBeginInfo.renderPass = VkSwap->MainPass;
+			RpBeginInfo.framebuffer = VkSwap->FrameBuffers[ImageIndex]; // This means the cmd buffer needs to be re-created when the swap chain gets recreated
+			RpBeginInfo.renderArea.offset = { 0, 0 };
+			RpBeginInfo.renderArea.extent = VkSwap->SwapChainExtent;
 
-				std::vector<VkClearValue> VkValues(Info.ClearValueCount);
-				GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
+			std::vector<VkClearValue> VkValues(Info.ClearValueCount);
+			GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
 
-				RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
-				RpBeginInfo.pClearValues = VkValues.data();
+			RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
+			RpBeginInfo.pClearValues = VkValues.data();
 
-				vkCmdBeginRenderPass(CmdBuffer, &RpBeginInfo, VK_SUBPASS_CONTENTS_INLINE); // This would need to be changed for secondary command buffers
-			});
+			vkCmdBeginRenderPass(CmdBuffer, &RpBeginInfo, VK_SUBPASS_CONTENTS_INLINE); // This would need to be changed for secondary command buffers
+		});
 	}
 
-	void VulkanRenderingInterface::BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info)
+	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, RenderGraphInfo Info)
 	{
 		VulkanRenderGraph* VkRg = static_cast<VulkanRenderGraph*>(Graph);
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Target);
@@ -1567,25 +1569,25 @@ namespace llrm
 		VkCmd->CurrentFbo = VkFbo;
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkRenderPassBeginInfo RpBeginInfo{};
-				RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-				RpBeginInfo.renderPass = VkRg->RenderPass;
-				RpBeginInfo.framebuffer = VkFbo->VulkanFbo; // This means the cmd buffer needs to be re-created when the swap chain gets recreated
-				RpBeginInfo.renderArea.offset = { 0, 0 };
-				RpBeginInfo.renderArea.extent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight };
+		{
+			VkRenderPassBeginInfo RpBeginInfo{};
+			RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			RpBeginInfo.renderPass = VkRg->RenderPass;
+			RpBeginInfo.framebuffer = VkFbo->VulkanFbo; // This means the cmd buffer needs to be re-created when the swap chain gets recreated
+			RpBeginInfo.renderArea.offset = { 0, 0 };
+			RpBeginInfo.renderArea.extent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight };
 
-				std::vector<VkClearValue> VkValues(Info.ClearValueCount);
-				GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
+			std::vector<VkClearValue> VkValues(Info.ClearValueCount);
+			GetVkClearValues(Info.ClearValues, Info.ClearValueCount, VkValues);
 
-				RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
-				RpBeginInfo.pClearValues = VkValues.data();
+			RpBeginInfo.clearValueCount = static_cast<uint32_t>(VkValues.size());
+			RpBeginInfo.pClearValues = VkValues.data();
 
-				vkCmdBeginRenderPass(CmdBuffer, &RpBeginInfo, VK_SUBPASS_CONTENTS_INLINE); // This would need to be changed for secondary command buffers
-			});
+			vkCmdBeginRenderPass(CmdBuffer, &RpBeginInfo, VK_SUBPASS_CONTENTS_INLINE); // This would need to be changed for secondary command buffers
+		});
 	}
 
-	void VulkanRenderingInterface::EndRenderGraph(CommandBuffer Buf)
+	void EndRenderGraph(CommandBuffer Buf)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
 
@@ -1593,12 +1595,12 @@ namespace llrm
 		VkCmd->CurrentFbo = nullptr;
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				vkCmdEndRenderPass(CmdBuffer);
-			});
+		{
+			vkCmdEndRenderPass(CmdBuffer);
+		});
 	}
 
-	void VulkanRenderingInterface::BindPipeline(CommandBuffer Buf, Pipeline PipelineObject)
+	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
 		VulkanPipeline* VkPipeline = reinterpret_cast<VulkanPipeline*>(PipelineObject);
@@ -1607,129 +1609,113 @@ namespace llrm
 		VkCmd->BoundPipeline = VkPipeline;
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				vkCmdBindPipeline(CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipeline->Pipeline);
-			});
+		{
+			vkCmdBindPipeline(CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipeline->Pipeline);
+		});
 	}
 
-	void VulkanRenderingInterface::BindResources(CommandBuffer Buf, ResourceSet Resources)
+	void BindResources(CommandBuffer Buf, ResourceSet Resources)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
 		VulkanResourceSet* VkRes = reinterpret_cast<VulkanResourceSet*>(Resources);
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkDescriptorSet& Set = VkRes->DescriptorSets[ImageIndex];
+		{
+			VkDescriptorSet& Set = VkRes->DescriptorSets[ImageIndex];
 
-				vkCmdBindDescriptorSets
-				(
-					CmdBuffer,
-					VK_PIPELINE_BIND_POINT_GRAPHICS,
-					VkCmd->BoundPipeline->PipelineLayout,
-					0, 1, &Set,
-					0, nullptr
-				);
+			vkCmdBindDescriptorSets
+			(
+				CmdBuffer,
+				VK_PIPELINE_BIND_POINT_GRAPHICS,
+				VkCmd->BoundPipeline->PipelineLayout,
+				0, 1, &Set,
+				0, nullptr
+			);
 
-			});
-
+		});
 	}
 
-	void VulkanRenderingInterface::DrawVertexBuffer(CommandBuffer Buf, VertexBuffer Vbo, uint32_t VertexCount)
+	void DrawVertexBuffer(CommandBuffer Buf, VertexBuffer Vbo, uint32_t VertexCount)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Vbo);
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkBuffer VertexBuffers[] = {
-					VulkanVbo->DeviceVertexBuffer
-				};
-				VkDeviceSize Offsets[] = {
-					0
-				};
+		{
+			VkBuffer VertexBuffers[] = {
+				VulkanVbo->DeviceVertexBuffer
+			};
+			VkDeviceSize Offsets[] = {
+				0
+			};
 
-				// Bind the vertex buffer
-				vkCmdBindVertexBuffers(CmdBuffer, 0, 1, VertexBuffers, Offsets);
+			// Bind the vertex buffer
+			vkCmdBindVertexBuffers(CmdBuffer, 0, 1, VertexBuffers, Offsets);
 
-				// Draw vertex buffer
-				vkCmdDraw(CmdBuffer, VertexCount, 1, 0, 0);
-			});
+			// Draw vertex buffer
+			vkCmdDraw(CmdBuffer, VertexCount, 1, 0, 0);
+		});
 	}
 
-	void VulkanRenderingInterface::DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, uint32_t IndexCount)
+	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, uint32_t IndexCount)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Vbo);
 
 		if (!VulkanVbo->bHasIndexBuffer)
 		{
-			GLog->error("Vulkan vertex buffer was not created with an index buffer, can't draw indexed vertex buffer");
+			//GLog->error("Vulkan vertex buffer was not created with an index buffer, can't draw indexed vertex buffer");
 			return;
 		}
 
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkBuffer VertexBuffers[] = {
-					VulkanVbo->DeviceVertexBuffer
-				};
-				VkDeviceSize Offsets[] = {
-					0
-				};
+		{
+			VkBuffer VertexBuffers[] = {
+				VulkanVbo->DeviceVertexBuffer
+			};
+			VkDeviceSize Offsets[] = {
+				0
+			};
 
-				// Bind the vertex buffer
-				vkCmdBindVertexBuffers(CmdBuffer, 0, 1, VertexBuffers, Offsets);
+			// Bind the vertex buffer
+			vkCmdBindVertexBuffers(CmdBuffer, 0, 1, VertexBuffers, Offsets);
 
-				// Bind the index buffer (force uint32)
-				vkCmdBindIndexBuffer(CmdBuffer, VulkanVbo->DeviceIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			// Bind the index buffer (force uint32)
+			vkCmdBindIndexBuffer(CmdBuffer, VulkanVbo->DeviceIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-				// Draw indexed vertex buffer
-				vkCmdDrawIndexed(CmdBuffer, IndexCount, 1, 0, 0, 0);
-			});
+			// Draw indexed vertex buffer
+			vkCmdDrawIndexed(CmdBuffer, IndexCount, 1, 0, 0, 0);
+		});
 	}
 
-	void VulkanRenderingInterface::SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
+	void SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
 	{
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				VkViewport Viewport;
-				Viewport.x = static_cast<float>(X);
-				Viewport.y = static_cast<float>(GetCurrentViewportHeight(Buf) - Y);
-				Viewport.width = static_cast<float>(W);
-				Viewport.height = static_cast<float>(-1.0f * H); // Flip Vulkan viewport
-				Viewport.minDepth = 0.0f;
-				Viewport.maxDepth = 1.0f;
+		{
+			VkViewport Viewport;
+			Viewport.x = static_cast<float>(X);
+			Viewport.y = static_cast<float>(GetCurrentViewportHeight(Buf) - Y);
+			Viewport.width = static_cast<float>(W);
+			Viewport.height = static_cast<float>(-1.0f * H); // Flip Vulkan viewport
+			Viewport.minDepth = 0.0f;
+			Viewport.maxDepth = 1.0f;
 
-				vkCmdSetViewport(CmdBuffer, 0, 1, &Viewport);
-			});
+			vkCmdSetViewport(CmdBuffer, 0, 1, &Viewport);
+		});
 	}
 
-	void VulkanRenderingInterface::SetScissor(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
+	void SetScissor(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
 	{
 		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-			{
-				uint32_t ScissorY = std::max(GetCurrentViewportHeight(Buf) - (Y + H), static_cast<uint32_t>(0));
+		{
+			uint32_t ScissorY = std::max(GetCurrentViewportHeight(Buf) - (Y + H), static_cast<uint32_t>(0));
 
-				VkRect2D Scissor;
-				Scissor.offset.x = static_cast<int32_t>(X);
-				Scissor.offset.y = ScissorY; // Flip on Y
-				Scissor.extent.width = static_cast<uint32_t>(W);
-				Scissor.extent.height = static_cast<uint32_t>(H);
+			VkRect2D Scissor;
+			Scissor.offset.x = static_cast<int32_t>(X);
+			Scissor.offset.y = ScissorY; // Flip on Y
+			Scissor.extent.width = static_cast<uint32_t>(W);
+			Scissor.extent.height = static_cast<uint32_t>(H);
 
-				vkCmdSetScissor(CmdBuffer, 0, 1, &Scissor);
-			});
-	}
-
-	bool VulkanRenderingInterface::InitializeRenderAPI()
-	{
-
-	}
-
-	bool VulkanRenderingInterface::InitializeForSurface(Surface Target)
-	{
-
-	}
-
-	void VulkanRenderingInterface::ShutdownRenderAPI()
-	{
-
+			vkCmdSetScissor(CmdBuffer, 0, 1, &Scissor);
+		});
 	}
 
 	bool CreateShaderModule(std::vector<uint32_t> SpvCode, VkShaderModule& OutShaderModule)
@@ -1740,7 +1726,7 @@ namespace llrm
 		CreateInfo.pCode = SpvCode.data();
 
 		VkShaderModule ShaderModule;
-		if (vkCreateShaderModule(GVulkanInfo.Device, &CreateInfo, nullptr, &ShaderModule) != VK_SUCCESS)
+		if (vkCreateShaderModule(GVulkanContext.Device, &CreateInfo, nullptr, &ShaderModule) != VK_SUCCESS)
 		{
 			return false;
 		}
@@ -1750,7 +1736,7 @@ namespace llrm
 		return true;
 	}
 
-	ShaderProgram VulkanRenderingInterface::CreateShader(const ShaderCreateInfo* ProgramData)
+	/*ShaderProgram CreateShader(const ShaderCreateInfo* ProgramData)
 	{
 		// Get the Spv data
 		HlslToSpvResult SpvResult;
@@ -1770,7 +1756,7 @@ namespace llrm
 		{
 			if (!CreateShaderModule(SpvResult.VertexSpv, Result->VertexModule))
 			{
-				GLog->critical("Failed to create shader module");
+				//GLog->critical("Failed to create shader module");
 
 				delete Result;
 				return nullptr;
@@ -1787,7 +1773,7 @@ namespace llrm
 		{
 			if (!CreateShaderModule(SpvResult.FragmentSpv, Result->FragmentModule))
 			{
-				GLog->critical("Failed to create shader module");
+				//GLog->critical("Failed to create shader module");
 
 				delete Result;
 				return nullptr;
@@ -1802,7 +1788,7 @@ namespace llrm
 		RECORD_RESOURCE_ALLOC(Result);
 
 		return Result;
-	}
+	}*/
 
 	/**
 	 * Queries the physical device for the optimal swap chain settings.
@@ -1824,17 +1810,17 @@ namespace llrm
 		uint32_t SurfaceFormatCount;
 		uint32_t PresentModeCount;
 
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GVulkanInfo.PhysicalDevice, TargetSurface, &OutSurfaceCapabilities); // Get surface capabilities
-		vkGetPhysicalDeviceSurfaceFormatsKHR(GVulkanInfo.PhysicalDevice, TargetSurface, &SurfaceFormatCount, nullptr); // Get count of surface formats
-		vkGetPhysicalDeviceSurfacePresentModesKHR(GVulkanInfo.PhysicalDevice, TargetSurface, &PresentModeCount, nullptr); // Get count of present formats
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GVulkanContext.PhysicalDevice, TargetSurface, &OutSurfaceCapabilities); // Get surface capabilities
+		vkGetPhysicalDeviceSurfaceFormatsKHR(GVulkanContext.PhysicalDevice, TargetSurface, &SurfaceFormatCount, nullptr); // Get count of surface formats
+		vkGetPhysicalDeviceSurfacePresentModesKHR(GVulkanContext.PhysicalDevice, TargetSurface, &PresentModeCount, nullptr); // Get count of present formats
 
 		if (SurfaceFormatCount > 0 && PresentModeCount > 0)
 		{
 			// Get the surface formats and present modes
 			SupportedFormats.resize(SurfaceFormatCount);
 			SupportedPresentModes.resize(PresentModeCount);
-			vkGetPhysicalDeviceSurfaceFormatsKHR(GVulkanInfo.PhysicalDevice, TargetSurface, &SurfaceFormatCount, SupportedFormats.data());
-			vkGetPhysicalDeviceSurfacePresentModesKHR(GVulkanInfo.PhysicalDevice, TargetSurface, &PresentModeCount, SupportedPresentModes.data());
+			vkGetPhysicalDeviceSurfaceFormatsKHR(GVulkanContext.PhysicalDevice, TargetSurface, &SurfaceFormatCount, SupportedFormats.data());
+			vkGetPhysicalDeviceSurfacePresentModesKHR(GVulkanContext.PhysicalDevice, TargetSurface, &PresentModeCount, SupportedPresentModes.data());
 
 			// Find the optimal extent
 			{
@@ -1928,7 +1914,7 @@ namespace llrm
 			OptimalExtent, OptimalFormat, OptimalPresentMode, SurfaceCapabilities, OptimalImageCount);
 
 		// This needs to be declared in case the queue families are different
-		uint32_t QueueFamilyIndices[] = { GVulkanInfo.GraphicsQueueFamIndex, GVulkanInfo.PresentQueueFamIndex };
+		uint32_t QueueFamilyIndices[] = { GVulkanContext.GraphicsQueueFamIndex, GVulkanContext.PresentQueueFamIndex };
 
 		VkSwapchainCreateInfoKHR CreateInfo{};
 		CreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1946,7 +1932,7 @@ namespace llrm
 		CreateInfo.oldSwapchain = VK_NULL_HANDLE;
 
 		// Make things simple: Use concurrent sharing if queue families are different
-		if (GVulkanInfo.GraphicsQueueFamIndex != GVulkanInfo.PresentQueueFamIndex)
+		if (GVulkanContext.GraphicsQueueFamIndex != GVulkanContext.PresentQueueFamIndex)
 		{
 			CreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			CreateInfo.queueFamilyIndexCount = 2;
@@ -1964,9 +1950,9 @@ namespace llrm
 		Dst->PresentMode = OptimalPresentMode;
 		Dst->SwapChainExtent = OptimalExtent;
 
-		if (vkCreateSwapchainKHR(GVulkanInfo.Device, &CreateInfo, nullptr, &Dst->SwapChain) != VK_SUCCESS)
+		if (vkCreateSwapchainKHR(GVulkanContext.Device, &CreateInfo, nullptr, &Dst->SwapChain) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create a Vulkan swap chain");
+			//GLog->critical("Failed to create a Vulkan swap chain");
 			return false;
 		}
 
@@ -1976,13 +1962,13 @@ namespace llrm
 	bool CreateVkSwapChainImageViews(VulkanSwapChain* Dst)
 	{
 		// Retrieve the swap chain images
-		vkGetSwapchainImagesKHR(GVulkanInfo.Device, Dst->SwapChain, &Dst->ImageCount, nullptr);
+		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &Dst->ImageCount, nullptr);
 
 		// Allocate space for images
 		Dst->Images = new VkImage[Dst->ImageCount];
 
 		// Get the actual swap chain images
-		vkGetSwapchainImagesKHR(GVulkanInfo.Device, Dst->SwapChain, &Dst->ImageCount, Dst->Images);
+		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &Dst->ImageCount, Dst->Images);
 
 		// Create image views for swap chain
 		Dst->ImageViews.resize(Dst->ImageCount);
@@ -2005,9 +1991,9 @@ namespace llrm
 			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
 			ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
-			if (vkCreateImageView(GVulkanInfo.Device, &ImageViewCreateInfo, nullptr, &Dst->ImageViews[ImageIndex]) != VK_SUCCESS)
+			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &Dst->ImageViews[ImageIndex]) != VK_SUCCESS)
 			{
-				GLog->error("Failed to create image view for swap chain");
+				//GLog->error("Failed to create image view for swap chain");
 
 				// Error in creation
 				return false;
@@ -2049,9 +2035,9 @@ namespace llrm
 		RpCreateInfo.pSubpasses = &MainPass;
 
 		// Create main render pass
-		if (vkCreateRenderPass(GVulkanInfo.Device, &RpCreateInfo, nullptr, &Dst->MainPass) != VK_SUCCESS)
+		if (vkCreateRenderPass(GVulkanContext.Device, &RpCreateInfo, nullptr, &Dst->MainPass) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create main render pass");
+			//GLog->critical("Failed to create main render pass");
 			return false;
 		}
 
@@ -2072,9 +2058,9 @@ namespace llrm
 			FramebufferCreateInfo.height = Dst->SwapChainExtent.height;
 			FramebufferCreateInfo.layers = 1;
 
-			if (vkCreateFramebuffer(GVulkanInfo.Device, &FramebufferCreateInfo, nullptr, &Dst->FrameBuffers[SwapFrameBuffer]) != VK_SUCCESS)
+			if (vkCreateFramebuffer(GVulkanContext.Device, &FramebufferCreateInfo, nullptr, &Dst->FrameBuffers[SwapFrameBuffer]) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create framebuffer for swap chain");
+				//GLog->critical("Failed to create framebuffer for swap chain");
 				return false;
 			}
 		}
@@ -2084,7 +2070,7 @@ namespace llrm
 
 	void DestroyVkSwapChain(VulkanSwapChain* VkSwap)
 	{
-		vkDestroySwapchainKHR(GVulkanInfo.Device, VkSwap->SwapChain, nullptr);
+		vkDestroySwapchainKHR(GVulkanContext.Device, VkSwap->SwapChain, nullptr);
 	}
 
 	void DestroyVkSwapChainImageViews(VulkanSwapChain* VkSwap)
@@ -2095,7 +2081,7 @@ namespace llrm
 		// Clean up framebuffers and image views
 		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->ImageCount; SwapChainImage++)
 		{
-			vkDestroyImageView(GVulkanInfo.Device, VkSwap->ImageViews[SwapChainImage], nullptr);
+			vkDestroyImageView(GVulkanContext.Device, VkSwap->ImageViews[SwapChainImage], nullptr);
 		}
 	}
 
@@ -2104,17 +2090,17 @@ namespace llrm
 		// Clean up framebuffers and image views
 		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->ImageCount; SwapChainImage++)
 		{
-			vkDestroyFramebuffer(GVulkanInfo.Device, VkSwap->FrameBuffers[SwapChainImage], nullptr);
+			vkDestroyFramebuffer(GVulkanContext.Device, VkSwap->FrameBuffers[SwapChainImage], nullptr);
 		}
 	}
 
 	void DestroyVkSwapChainRenderPass(VulkanSwapChain* VkSwap)
 	{
 		// Destroy render pass
-		vkDestroyRenderPass(GVulkanInfo.Device, VkSwap->MainPass, nullptr);
+		vkDestroyRenderPass(GVulkanContext.Device, VkSwap->MainPass, nullptr);
 	}
 
-	SwapChain VulkanRenderingInterface::CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth,
+	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth,
 		int32_t DesiredHeight)
 	{
 		VulkanSwapChain* Result = new VulkanSwapChain;
@@ -2149,10 +2135,10 @@ namespace llrm
 			// Create semaphore for frame in flight
 			VkSemaphoreCreateInfo SemCreate{};
 			SemCreate.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-			if (vkCreateSemaphore(GVulkanInfo.Device, &SemCreate, nullptr, &ImageAvailableSem) != VK_SUCCESS ||
-				vkCreateSemaphore(GVulkanInfo.Device, &SemCreate, nullptr, &PresentSem) != VK_SUCCESS)
+			if (vkCreateSemaphore(GVulkanContext.Device, &SemCreate, nullptr, &ImageAvailableSem) != VK_SUCCESS ||
+				vkCreateSemaphore(GVulkanContext.Device, &SemCreate, nullptr, &PresentSem) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create semaphores for swap chain");
+				//GLog->critical("Failed to create semaphores for swap chain");
 
 				delete Result;
 				return nullptr;
@@ -2161,9 +2147,9 @@ namespace llrm
 			VkFenceCreateInfo FenceCreate{};
 			FenceCreate.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 			FenceCreate.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-			if (vkCreateFence(GVulkanInfo.Device, &FenceCreate, nullptr, &InFlightFence) != VK_SUCCESS)
+			if (vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &InFlightFence) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create fence for swap chain");
+				//GLog->critical("Failed to create fence for swap chain");
 				return nullptr;
 			}
 
@@ -2175,12 +2161,12 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	void VulkanRenderingInterface::DestroySwapChain(SwapChain Swap)
+	void DestroySwapChain(SwapChain Swap)
 	{
-		vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 
@@ -2193,18 +2179,18 @@ namespace llrm
 		// Destroy frames in flight
 		for (const auto& FrameInFlight : VkSwap->FramesInFlight)
 		{
-			vkDestroySemaphore(GVulkanInfo.Device, FrameInFlight.ImageAvailableSemaphore, nullptr);
-			vkDestroySemaphore(GVulkanInfo.Device, FrameInFlight.RenderingFinishedSemaphore, nullptr);
-			vkDestroyFence(GVulkanInfo.Device, FrameInFlight.InFlightFence, nullptr);
+			vkDestroySemaphore(GVulkanContext.Device, FrameInFlight.ImageAvailableSemaphore, nullptr);
+			vkDestroySemaphore(GVulkanContext.Device, FrameInFlight.RenderingFinishedSemaphore, nullptr);
+			vkDestroyFence(GVulkanContext.Device, FrameInFlight.InFlightFence, nullptr);
 		}
 
 		REMOVE_RESOURCE_ALLOC(VkSwap)
 
-			// Free swap chain memory
-			delete VkSwap;
+		// Free swap chain memory
+		delete VkSwap;
 	}
 
-	void VulkanRenderingInterface::SubmitSwapCommandBuffer(SwapChain Target, CommandBuffer Buffer)
+	void SubmitSwapCommandBuffer(SwapChain Target, CommandBuffer Buffer)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buffer);
@@ -2213,7 +2199,7 @@ namespace llrm
 		VkSwap->BuffersToSubmit.push_back(VkCmd->CmdBuffers[VkSwap->AcquiredImageIndex]);
 	}
 
-	void VulkanRenderingInterface::SubmitCommandBuffer(CommandBuffer Buffer, bool bWait, Fence WaitFence)
+	void SubmitCommandBuffer(CommandBuffer Buffer, bool bWait, Fence WaitFence)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buffer);
 
@@ -2222,33 +2208,33 @@ namespace llrm
 		SubmitInfo.commandBufferCount = 1;
 		SubmitInfo.pCommandBuffers = &VkCmd->CmdBuffers[0];
 
-		if (vkQueueSubmit(GVulkanInfo.GraphicsQueue, 1, &SubmitInfo, WaitFence ? static_cast<VkFence>(WaitFence) : VK_NULL_HANDLE) != VK_SUCCESS)
+		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, 1, &SubmitInfo, WaitFence ? static_cast<VkFence>(WaitFence) : VK_NULL_HANDLE) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to submit vulkan command buffers to graphics queue");
+			//GLog->critical("Failed to submit vulkan command buffers to graphics queue");
 		}
 
 		if (bWait)
 		{
-			vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
+			vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 		}
 	}
 
-	void VulkanRenderingInterface::BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
+	void BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 
-		GVulkanInfo.CurrentSwapChain = VkSwap;
+		GVulkanContext.CurrentSwapChain = VkSwap;
 
 		VkSwap->bInsideFrame = true;
 
 		if (FrameWidth == 0 || FrameHeight == 0)
 		{
-			vkDeviceWaitIdle(GVulkanInfo.Device);
+			vkDeviceWaitIdle(GVulkanContext.Device);
 			return;
 		}
 
 		// Acquire image
-		VkResult ImageAcquireResult = vkAcquireNextImageKHR(GVulkanInfo.Device, VkSwap->SwapChain, UINT64_MAX,
+		VkResult ImageAcquireResult = vkAcquireNextImageKHR(GVulkanContext.Device, VkSwap->SwapChain, UINT64_MAX,
 			VkSwap->FramesInFlight[VkSwap->CurrentFrame].ImageAvailableSemaphore, VK_NULL_HANDLE, &VkSwap->AcquiredImageIndex);
 
 		// Vulkan swap chain needs to re-created immediately
@@ -2261,29 +2247,29 @@ namespace llrm
 		if (VkSwap->ImageFences[VkSwap->AcquiredImageIndex] != VK_NULL_HANDLE)
 		{
 			// Wait for the previous frame to complete execution of vkQueueSubmit
-			vkWaitForFences(GVulkanInfo.Device, 1, &VkSwap->ImageFences[VkSwap->AcquiredImageIndex], VK_TRUE, UINT64_MAX);
+			vkWaitForFences(GVulkanContext.Device, 1, &VkSwap->ImageFences[VkSwap->AcquiredImageIndex], VK_TRUE, UINT64_MAX);
 		}
 
 		// Mark new image as being used by this "frame in flight"
 		VkSwap->ImageFences[VkSwap->AcquiredImageIndex] = VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence;
 	}
 
-	void VulkanRenderingInterface::EndFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
+	void EndFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
-		GVulkanInfo.CurrentSwapChain = nullptr;
+		GVulkanContext.CurrentSwapChain = nullptr;
 
 		VkSwap->bInsideFrame = false;
 
 		if (FrameWidth == 0 || FrameHeight == 0)
 		{
-			vkDeviceWaitIdle(GVulkanInfo.Device);
+			vkDeviceWaitIdle(GVulkanContext.Device);
 			VkSwap->BuffersToSubmit.clear();
 			return;
 		}
 
 		// Reset the fence that we're waiting on
-		vkResetFences(GVulkanInfo.Device, 1, &VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence);
+		vkResetFences(GVulkanContext.Device, 1, &VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence);
 
 		// Submit our command buffers for this frame
 		VkPipelineStageFlags WaitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -2298,9 +2284,9 @@ namespace llrm
 		QueueSubmit.pSignalSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].RenderingFinishedSemaphore; // Signal when rendering is finished
 
 		// Notify the in flight fence once the execution of this vkQueueSubmit is complete
-		if (vkQueueSubmit(GVulkanInfo.GraphicsQueue, static_cast<uint32_t>(VkSwap->BuffersToSubmit.size()), &QueueSubmit, VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence) != VK_SUCCESS)
+		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, static_cast<uint32_t>(VkSwap->BuffersToSubmit.size()), &QueueSubmit, VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to submit vulkan command buffers to graphics queue");
+			//GLog->critical("Failed to submit vulkan command buffers to graphics queue");
 		}
 
 		// Present the rendered images
@@ -2314,7 +2300,7 @@ namespace llrm
 		PresentInfo.pResults = nullptr;
 
 		// Present the rendered image
-		VkResult PresentResult = vkQueuePresentKHR(GVulkanInfo.GraphicsQueue, &PresentInfo);
+		VkResult PresentResult = vkQueuePresentKHR(GVulkanContext.GraphicsQueue, &PresentInfo);
 
 		if (PresentResult == VK_ERROR_OUT_OF_DATE_KHR || PresentResult == VK_SUBOPTIMAL_KHR)
 		{
@@ -2328,17 +2314,17 @@ namespace llrm
 		VkSwap->BuffersToSubmit.clear();
 	}
 
-	void VulkanRenderingInterface::GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height)
+	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 		Width = VkSwap->SwapChainExtent.width;
 		Height = VkSwap->SwapChainExtent.height;
 	}
 
-	void VulkanRenderingInterface::RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight)
+	void RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
-		vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		// Re-create the needed resources
 		DestroyVkSwapChainFramebuffers(VkSwap);
@@ -2352,7 +2338,7 @@ namespace llrm
 		CreateVkSwapChainFrameBuffers(VkSwap);
 	}
 
-	void VulkanRenderingInterface::GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height)
+	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height)
 	{
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Fbo);
 
@@ -2360,18 +2346,16 @@ namespace llrm
 		Height = VkFbo->AttachmentHeight;
 	}
 
-
-
-	void VulkanRenderingInterface::ResizeFrameBuffer(FrameBuffer Fbo, uint32_t NewWidth, uint32_t NewHeight)
+	void ResizeFrameBuffer(FrameBuffer Fbo, uint32_t NewWidth, uint32_t NewHeight)
 	{
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(Fbo);
 
 		// Wait on queue
-		vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		// Destroy old images
 		DestroyFramebufferImages(VkFbo);
-		vkDestroyFramebuffer(GVulkanInfo.Device, VkFbo->VulkanFbo, nullptr);
+		vkDestroyFramebuffer(GVulkanContext.Device, VkFbo->VulkanFbo, nullptr);
 
 		// Re-create images and framebuffer
 		if (!CreateFrameBufferImages(VkFbo, VkFbo->ColorAttachmentDescriptions, NewWidth, NewHeight))
@@ -2389,7 +2373,7 @@ namespace llrm
 		VkFbo->AttachmentHeight = NewHeight;
 	}
 
-	void VulkanRenderingInterface::UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex,
+	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex,
 		void* Data, uint64_t DataSize)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
@@ -2397,7 +2381,7 @@ namespace llrm
 
 		if (!VkSwap->bInsideFrame)
 		{
-			GLog->critical("Must update constant buffer within the limits of a swap chain frame");
+			//GLog->critical("Must update constant buffer within the limits of a swap chain frame");
 			return;
 		}
 
@@ -2405,11 +2389,11 @@ namespace llrm
 
 		// Data is guaranteed available since this frame is guaranteed to have previous operations complete by cpu fence in BeginFrame
 		void* MappedData;
-		vkMapMemory(GVulkanInfo.Device, Mem, 0, DataSize, 0, &MappedData);
+		vkMapMemory(GVulkanContext.Device, Mem, 0, DataSize, 0, &MappedData);
 		{
 			std::memcpy(MappedData, Data, DataSize);
 		}
-		vkUnmapMemory(GVulkanInfo.Device, Mem); // Memory is host-coherent, so no flush necessary
+		vkUnmapMemory(GVulkanContext.Device, Mem); // Memory is host-coherent, so no flush necessary
 
 		// Update descriptor set memory
 		const auto& ConstBuf = VkRes->ConstantBuffers[BufferIndex];
@@ -2431,11 +2415,11 @@ namespace llrm
 		BufferWrite.pImageInfo = nullptr;
 		BufferWrite.pTexelBufferView = nullptr;
 
-		vkUpdateDescriptorSets(GVulkanInfo.Device, 1, &BufferWrite, 0, nullptr);
+		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &BufferWrite, 0, nullptr);
 	}
 
 	// TODO: Reuse code among UpdateTextureResource and UpdateAttachmentResource
-	void VulkanRenderingInterface::UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding)
+	void UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
@@ -2468,13 +2452,13 @@ namespace llrm
 			ImageWrite.pTexelBufferView = nullptr;
 		}
 
-		vkUpdateDescriptorSets(GVulkanInfo.Device, ImageCount, Writes, 0, nullptr);
+		vkUpdateDescriptorSets(GVulkanContext.Device, ImageCount, Writes, 0, nullptr);
 
 		delete[] Writes;
 		delete[] ImageInfos;
 	}
 
-	void VulkanRenderingInterface::UpdateAttachmentResource(ResourceSet Resources, SwapChain Target, FrameBuffer SrcBuffer,
+	void UpdateAttachmentResource(ResourceSet Resources, SwapChain Target, FrameBuffer SrcBuffer,
 		uint32_t AttachmentIndex, uint32_t Binding)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
@@ -2499,10 +2483,10 @@ namespace llrm
 		ImageWrite.pImageInfo = &ImageInfo;
 		ImageWrite.pTexelBufferView = nullptr;
 
-		vkUpdateDescriptorSets(GVulkanInfo.Device, 1, &ImageWrite, 0, nullptr);
+		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &ImageWrite, 0, nullptr);
 	}
 
-	void VulkanRenderingInterface::UpdateAttachmentResources(ResourceSet Resources, SwapChain Target, FrameBuffer* Buffers,
+	void UpdateAttachmentResources(ResourceSet Resources, SwapChain Target, FrameBuffer* Buffers,
 		uint32_t BufferCount, uint32_t AttachmentIndex, uint32_t Binding)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
@@ -2536,7 +2520,7 @@ namespace llrm
 			ImageWrite.pTexelBufferView = nullptr;
 		}
 
-		vkUpdateDescriptorSets(GVulkanInfo.Device, BufferCount, Writes, 0, nullptr);
+		vkUpdateDescriptorSets(GVulkanContext.Device, BufferCount, Writes, 0, nullptr);
 
 		delete[] Writes;
 		delete[] ImageInfos;
@@ -2551,16 +2535,16 @@ namespace llrm
 	{
 
 		// Wait for previous staging transfer operation to complete
-		vkWaitForFences(GVulkanInfo.Device, 1, &StagingFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(GVulkanInfo.Device, 1, &StagingFence);
+		vkWaitForFences(GVulkanContext.Device, 1, &StagingFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(GVulkanContext.Device, 1, &StagingFence);
 
 		// Now we can safely write to host-visible staging buffer memory
 		void* MappedData = nullptr;
-		vkMapMemory(GVulkanInfo.Device, StagingMemory, 0, Size, 0, &MappedData);
+		vkMapMemory(GVulkanContext.Device, StagingMemory, 0, Size, 0, &MappedData);
 		{
 			std::memcpy(MappedData, Data, Size);
 		}
-		vkUnmapMemory(GVulkanInfo.Device, StagingMemory);
+		vkUnmapMemory(GVulkanContext.Device, StagingMemory);
 
 		VkCommandBufferBeginInfo BeginInfo{};
 		BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2624,11 +2608,10 @@ namespace llrm
 		QueueSubmit.pCommandBuffers = &StagingCommandBuffer;
 
 		// Pass in a fence. This will prevent us from creating a RAW (read-after-write) hazard in the pipeline.
-		vkQueueSubmit(GVulkanInfo.GraphicsQueue, 1, &QueueSubmit, StagingFence);
-
+		vkQueueSubmit(GVulkanContext.GraphicsQueue, 1, &QueueSubmit, StagingFence);
 	}
 
-	void VulkanRenderingInterface::UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size)
+	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
 
@@ -2641,13 +2624,13 @@ namespace llrm
 
 	}
 
-	void VulkanRenderingInterface::UploadIndexBufferData(VertexBuffer Buffer, uint32_t* Data, uint64_t Size)
+	void UploadIndexBufferData(VertexBuffer Buffer, uint32_t* Data, uint64_t Size)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
 
 		if (!VulkanVbo->bHasIndexBuffer)
 		{
-			GLog->error("Vulkan vertex buffer was not created with an index buffer, cant upload index buffer data");
+			//GLog->error("Vulkan vertex buffer was not created with an index buffer, cant upload index buffer data");
 			return;
 		}
 
@@ -2659,18 +2642,18 @@ namespace llrm
 			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 	}
 
-	void VulkanRenderingInterface::ResizeVertexBuffer(VertexBuffer Buffer, uint64_t NewSize)
+	void ResizeVertexBuffer(VertexBuffer Buffer, uint64_t NewSize)
 	{
 		// Delete old resources
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
 
 		// Force queue idle
-		vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->DeviceVertexBufferMemory, nullptr);
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->DeviceVertexBuffer, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->StagingVertexBuffer, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceVertexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceVertexBuffer, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingVertexBuffer, nullptr);
 
 		// Re-allocate buffer resources using the same flags that were used to create it
 		CreateBuffer(NewSize,
@@ -2688,24 +2671,24 @@ namespace llrm
 
 	}
 
-	void VulkanRenderingInterface::ResizeIndexBuffer(VertexBuffer Buffer, uint64_t NewSize)
+	void ResizeIndexBuffer(VertexBuffer Buffer, uint64_t NewSize)
 	{
 		// Delete old resources
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
 
 		if (!VulkanVbo->bHasIndexBuffer)
 		{
-			GLog->error("Vulkan vertex buffer was not created with an index buffer, can't resize index buffer");
+			//GLog->error("Vulkan vertex buffer was not created with an index buffer, can't resize index buffer");
 			return;
 		}
 
 		// Force queue idle
-		vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->StagingIndexBuffer, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingIndexBuffer, nullptr);
 
 		CreateBuffer(NewSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -2721,9 +2704,9 @@ namespace llrm
 		);
 	}
 
-	void VulkanRenderingInterface::ReadFramebufferAttachment(FrameBuffer SrcBuffer, uint32_t Attachment, void* Dst, uint64_t BufferSize)
+	void ReadFramebufferAttachment(FrameBuffer SrcBuffer, uint32_t Attachment, void* Dst, uint64_t BufferSize)
 	{
-		vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(SrcBuffer);
 
 		VkBuffer StagingBuffer;
@@ -2738,53 +2721,53 @@ namespace llrm
 
 		// Transition image to transfer src from shader read
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
-			{
-				GRenderAPI->TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::ShaderRead, AttachmentUsage::TransferSource);
-			});
+		{
+			TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::ShaderRead, AttachmentUsage::TransferSource);
+		});
 
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
+		{
+			ForEachCmdBuffer(Dst, [&](VkCommandBuffer Buf, int32_t ImageIndex)
 			{
-				ForEachCmdBuffer(Dst, [&](VkCommandBuffer Buf, int32_t ImageIndex)
-					{
-						VkBufferImageCopy ImageCopy{};
-						ImageCopy.bufferOffset = 0;
-						ImageCopy.bufferRowLength = 0;
-						ImageCopy.bufferImageHeight = 0;
+				VkBufferImageCopy ImageCopy{};
+				ImageCopy.bufferOffset = 0;
+				ImageCopy.bufferRowLength = 0;
+				ImageCopy.bufferImageHeight = 0;
 
-						ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-						ImageCopy.imageSubresource.mipLevel = 0;
-						ImageCopy.imageSubresource.baseArrayLayer = 0;
-						ImageCopy.imageSubresource.layerCount = 1;
+				ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				ImageCopy.imageSubresource.mipLevel = 0;
+				ImageCopy.imageSubresource.baseArrayLayer = 0;
+				ImageCopy.imageSubresource.layerCount = 1;
 
-						ImageCopy.imageOffset = { 0, 0, 0 };
-						ImageCopy.imageExtent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight, 1 };
+				ImageCopy.imageOffset = { 0, 0, 0 };
+				ImageCopy.imageExtent = { VkFbo->AttachmentWidth, VkFbo->AttachmentHeight, 1 };
 
-						// Copy image data to buffer
-						vkCmdCopyImageToBuffer(Buf,
-							VkFbo->ColorAttachmentImages[Attachment],
-							VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-							StagingBuffer,
-							1,
-							&ImageCopy
-						);
-					});
+				// Copy image data to buffer
+				vkCmdCopyImageToBuffer(Buf,
+					VkFbo->ColorAttachmentImages[Attachment],
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					StagingBuffer,
+					1,
+					&ImageCopy
+				);
 			});
+		});
 
 		void* MappedData;
-		vkMapMemory(GVulkanInfo.Device, StagingBufferMemory, 0, BufferSize, 0, &MappedData);
+		vkMapMemory(GVulkanContext.Device, StagingBufferMemory, 0, BufferSize, 0, &MappedData);
 		{
 			std::memcpy(Dst, MappedData, BufferSize);
 		}
-		vkUnmapMemory(GVulkanInfo.Device, StagingBufferMemory);
+		vkUnmapMemory(GVulkanContext.Device, StagingBufferMemory);
 
 		// Transition image back
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
-			{
-				GRenderAPI->TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::TransferSource, AttachmentUsage::ShaderRead);
-			});
+		{
+			TransitionFrameBufferColorAttachment(Dst, SrcBuffer, Attachment, AttachmentUsage::TransferSource, AttachmentUsage::ShaderRead);
+		});
 
-		vkFreeMemory(GVulkanInfo.Device, StagingBufferMemory, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, StagingBuffer, nullptr);
+		vkFreeMemory(GVulkanContext.Device, StagingBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, StagingBuffer, nullptr);
 	}
 
 	VkShaderStageFlags ShaderStageToVkStage(ShaderStage Stage)
@@ -2800,7 +2783,7 @@ namespace llrm
 		return VK_SHADER_STAGE_VERTEX_BIT;
 	}
 
-	ResourceLayout VulkanRenderingInterface::CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo)
+	ResourceLayout CreateResourceLayout(const ResourceLayoutCreateInfo* CreateInfo)
 	{
 		VulkanResourceLayout* Result = new VulkanResourceLayout;
 
@@ -2840,47 +2823,47 @@ namespace llrm
 		LayoutCreateInfo.bindingCount = static_cast<uint32_t>(LayoutBindings.size());
 		LayoutCreateInfo.pBindings = LayoutBindings.data();
 
-		if (vkCreateDescriptorSetLayout(GVulkanInfo.Device, &LayoutCreateInfo, nullptr, &Result->VkLayout) != VK_SUCCESS)
+		if (vkCreateDescriptorSetLayout(GVulkanContext.Device, &LayoutCreateInfo, nullptr, &Result->VkLayout) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create Vulkan descriptor set layout");
+			//GLog->critical("Failed to create Vulkan descriptor set layout");
 			return nullptr;
 		}
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	void VulkanRenderingInterface::DestroyResourceLayout(ResourceLayout Layout)
+	void DestroyResourceLayout(ResourceLayout Layout)
 	{
 		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(Layout);
-		vkDestroyDescriptorSetLayout(GVulkanInfo.Device, VkLayout->VkLayout, nullptr);
+		vkDestroyDescriptorSetLayout(GVulkanContext.Device, VkLayout->VkLayout, nullptr);
 
 		REMOVE_RESOURCE_ALLOC(VkLayout)
 
-			delete VkLayout;
+		delete VkLayout;
 	}
 
-	void VulkanRenderingInterface::DestroyResourceSet(ResourceSet Resources)
+	void DestroyResourceSet(ResourceSet Resources)
 	{
-		vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
 		for (const auto& ConstBuf : VkRes->ConstantBuffers)
 		{
 			for (const auto& Memory : ConstBuf.Memory)
-				vkFreeMemory(GVulkanInfo.Device, Memory, nullptr);
+				vkFreeMemory(GVulkanContext.Device, Memory, nullptr);
 
 			for (const auto& Buf : ConstBuf.Buffers)
-				vkDestroyBuffer(GVulkanInfo.Device, Buf, nullptr);
+				vkDestroyBuffer(GVulkanContext.Device, Buf, nullptr);
 
 		}
 
-		vkFreeDescriptorSets(GVulkanInfo.Device, GVulkanInfo.MainDscPool, static_cast<uint32_t>(VkRes->DescriptorSets.size()), VkRes->DescriptorSets.data());
+		vkFreeDescriptorSets(GVulkanContext.Device, GVulkanContext.MainDscPool, static_cast<uint32_t>(VkRes->DescriptorSets.size()), VkRes->DescriptorSets.data());
 
 		REMOVE_RESOURCE_ALLOC(VkRes)
 
-			delete VkRes;
+		delete VkRes;
 	}
 
 	void CreatePipelineShaderStage(VkShaderStageFlagBits Stage, VkShaderModule Module, VkPipelineShaderStageCreateInfo& OutCreateInfo)
@@ -2927,14 +2910,14 @@ namespace llrm
 		return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	}
 
-	Pipeline VulkanRenderingInterface::CreatePipeline(const PipelineCreateInfo* CreateInfo)
+	Pipeline CreatePipeline(const PipelineCreateInfo* CreateInfo)
 	{
 		VulkanShader* VkShader = static_cast<VulkanShader*>(CreateInfo->Shader);
 		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo->CompatibleGraph);
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo->CompatibleSwapChain);
 		if (!VkSwap && !VkRenderGraph)
 		{
-			GLog->critical("Must specify either a valid Vulkan RenderGraph or SwapChain when creating a pipeline");
+			//GLog->critical("Must specify either a valid Vulkan RenderGraph or SwapChain when creating a pipeline");
 			return nullptr;
 		}
 
@@ -3101,9 +3084,9 @@ namespace llrm
 		PipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 		PipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
-		if (vkCreatePipelineLayout(GVulkanInfo.Device, &PipelineLayoutInfo, nullptr, &Result->PipelineLayout) != VK_SUCCESS)
+		if (vkCreatePipelineLayout(GVulkanContext.Device, &PipelineLayoutInfo, nullptr, &Result->PipelineLayout) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create pipeline layout");
+			//GLog->critical("Failed to create pipeline layout");
 
 			delete Result;
 			return nullptr;
@@ -3129,9 +3112,9 @@ namespace llrm
 		PipelineCreateInfo.basePipelineIndex = -1;
 
 		// TODO: use a global pipeline cache
-		if (vkCreateGraphicsPipelines(GVulkanInfo.Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, nullptr, &Result->Pipeline) != VK_SUCCESS)
+		if (vkCreateGraphicsPipelines(GVulkanContext.Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, nullptr, &Result->Pipeline) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create a Vulkan graphics pipeline");
+			//GLog->critical("Failed to create a Vulkan graphics pipeline");
 
 			delete Result;
 			return nullptr;
@@ -3139,10 +3122,10 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	RenderGraph VulkanRenderingInterface::CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo)
+	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo* CreateInfo)
 	{
 		VulkanRenderGraph* Result = new VulkanRenderGraph;
 
@@ -3275,9 +3258,9 @@ namespace llrm
 		RenderPassCreateInfo.dependencyCount = static_cast<uint32_t>(Deps.size());
 		RenderPassCreateInfo.pDependencies = Deps.data();
 
-		if (vkCreateRenderPass(GVulkanInfo.Device, &RenderPassCreateInfo, nullptr, &Result->RenderPass) != VK_SUCCESS)
+		if (vkCreateRenderPass(GVulkanContext.Device, &RenderPassCreateInfo, nullptr, &Result->RenderPass) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create Vulkan render pass");
+			//GLog->critical("Failed to create Vulkan render pass");
 
 			delete Result;
 			return nullptr;
@@ -3285,17 +3268,17 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	CommandBuffer VulkanRenderingInterface::CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic)
+	CommandBuffer CreateSwapChainCommandBuffer(SwapChain Target, bool bDynamic)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
 
 		// Create a single command buffer
 		VkCommandBufferAllocateInfo CmdBufAllocInfo{};
 		CmdBufAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		CmdBufAllocInfo.commandPool = GVulkanInfo.MainCommandPool;
+		CmdBufAllocInfo.commandPool = GVulkanContext.MainCommandPool;
 		CmdBufAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // TODO: support secondary command buffers
 		CmdBufAllocInfo.commandBufferCount = VkSwap->ImageCount;
 
@@ -3304,9 +3287,9 @@ namespace llrm
 		NewCmdBuf->bDynamic = bDynamic;
 		NewCmdBuf->bTargetSwapChain = true;
 
-		if (vkAllocateCommandBuffers(GVulkanInfo.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(GVulkanContext.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to allocate command buffer");
+			//GLog->critical("Failed to allocate command buffer");
 
 			delete NewCmdBuf;
 			return nullptr;
@@ -3314,15 +3297,15 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(NewCmdBuf)
 
-			return NewCmdBuf;
+		return NewCmdBuf;
 	}
 
-	CommandBuffer VulkanRenderingInterface::CreateCommandBuffer(bool bOneTimeUse)
+	CommandBuffer CreateCommandBuffer(bool bOneTimeUse)
 	{
 		// Create a single command buffer
 		VkCommandBufferAllocateInfo CmdBufAllocInfo{};
 		CmdBufAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		CmdBufAllocInfo.commandPool = GVulkanInfo.MainCommandPool;
+		CmdBufAllocInfo.commandPool = GVulkanContext.MainCommandPool;
 		CmdBufAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // TODO: support secondary command buffers
 		CmdBufAllocInfo.commandBufferCount = 1;
 
@@ -3330,9 +3313,9 @@ namespace llrm
 		NewCmdBuf->CmdBuffers.resize(1); // Only create a single command buffer since we're not targeting the swap chain
 		NewCmdBuf->bOneTimeUse = bOneTimeUse;
 
-		if (vkAllocateCommandBuffers(GVulkanInfo.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(GVulkanContext.Device, &CmdBufAllocInfo, NewCmdBuf->CmdBuffers.data()) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to allocate command buffer");
+			//GLog->critical("Failed to allocate command buffer");
 
 			delete NewCmdBuf;
 			return nullptr;
@@ -3340,10 +3323,10 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(NewCmdBuf)
 
-			return NewCmdBuf;
+		return NewCmdBuf;
 	}
 
-	ResourceSet VulkanRenderingInterface::CreateResourceSet(ResourceSetCreateInfo* CreateInfo)
+	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo->TargetSwap);
 		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo->Layout);
@@ -3368,7 +3351,7 @@ namespace llrm
 
 				if (!bSuccess)
 				{
-					GLog->critical("Failed to allocate uniform buffer for resource set");
+					//GLog->critical("Failed to allocate uniform buffer for resource set");
 					return nullptr;
 				}
 
@@ -3384,14 +3367,14 @@ namespace llrm
 			// Allocate descriptor sets
 			VkDescriptorSetAllocateInfo SetAllocInfo{};
 			SetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			SetAllocInfo.descriptorPool = GVulkanInfo.MainDscPool;
+			SetAllocInfo.descriptorPool = GVulkanContext.MainDscPool;
 			SetAllocInfo.descriptorSetCount = 1;
 			SetAllocInfo.pSetLayouts = &VkLayout->VkLayout;
 
 			VkDescriptorSet NewSet;
-			if (vkAllocateDescriptorSets(GVulkanInfo.Device, &SetAllocInfo, &NewSet) != VK_SUCCESS)
+			if (vkAllocateDescriptorSets(GVulkanContext.Device, &SetAllocInfo, &NewSet) != VK_SUCCESS)
 			{
-				GLog->critical("Failed to create vulkan descriptor set");
+				//GLog->critical("Failed to create vulkan descriptor set");
 				return nullptr;
 			}
 
@@ -3414,7 +3397,7 @@ namespace llrm
 		return VK_FORMAT_R8G8B8A8_SRGB;
 	}
 
-	Texture VulkanRenderingInterface::CreateTexture(uint64_t ImageSize, TextureFormat Format, uint32_t Width, uint32_t Height, void* Data)
+	Texture CreateTexture(uint64_t ImageSize, TextureFormat Format, uint32_t Width, uint32_t Height, void* Data)
 	{
 		VulkanTexture* Result = new VulkanTexture;
 
@@ -3430,11 +3413,11 @@ namespace llrm
 		);
 
 		void* MappedData;
-		vkMapMemory(GVulkanInfo.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+		vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
 		{
 			std::memcpy(MappedData, Data, ImageSize);
 		}
-		vkUnmapMemory(GVulkanInfo.Device, Result->StagingBufferMemory);
+		vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
 
 		VkImageCreateInfo ImageCreate{};
 		ImageCreate.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -3451,69 +3434,69 @@ namespace llrm
 		ImageCreate.samples = VK_SAMPLE_COUNT_1_BIT;
 		ImageCreate.flags = 0;
 
-		if (vkCreateImage(GVulkanInfo.Device, &ImageCreate, nullptr, &Result->TextureImage) != VK_SUCCESS)
+		if (vkCreateImage(GVulkanContext.Device, &ImageCreate, nullptr, &Result->TextureImage) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create vulkan image");
+			//GLog->critical("Failed to create vulkan image");
 			return nullptr;
 		}
 
 		VkMemoryRequirements MemReq{};
-		vkGetImageMemoryRequirements(GVulkanInfo.Device, Result->TextureImage, &MemReq);
+		vkGetImageMemoryRequirements(GVulkanContext.Device, Result->TextureImage, &MemReq);
 
 		VkMemoryAllocateInfo AllocInfo{};
 		AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		AllocInfo.allocationSize = MemReq.size;
-		AllocInfo.memoryTypeIndex = FindMemoryType(MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		AllocInfo.memoryTypeIndex = FindMemoryType(GVulkanContext.PhysicalDevice, MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-		if (vkAllocateMemory(GVulkanInfo.Device, &AllocInfo, nullptr, &Result->TextureMemory) != VK_SUCCESS)
+		if (vkAllocateMemory(GVulkanContext.Device, &AllocInfo, nullptr, &Result->TextureMemory) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create memory for vulkan image");
+			//GLog->critical("Failed to create memory for vulkan image");
 			return nullptr;
 		}
 
-		vkBindImageMemory(GVulkanInfo.Device, Result->TextureImage, Result->TextureMemory, 0);
+		vkBindImageMemory(GVulkanContext.Device, Result->TextureImage, Result->TextureMemory, 0);
 
 		// Transition image to upload data to
 		ImmediateSubmitAndWait([&](CommandBuffer Buf)
-			{
-				GRenderAPI->TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::TransferDestination);
-			});
+		{
+			TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::TransferDestination);
+		});
 
 		ImmediateSubmitAndWait([&](CommandBuffer Buf)
+		{
+			ForEachCmdBuffer(Buf, [&](VkCommandBuffer Buf, int32_t ImageIndex)
 			{
-				ForEachCmdBuffer(Buf, [&](VkCommandBuffer Buf, int32_t ImageIndex)
-					{
-						VkBufferImageCopy ImageCopy{};
-						ImageCopy.bufferOffset = 0;
-						ImageCopy.bufferRowLength = 0;
-						ImageCopy.bufferImageHeight = 0;
+				VkBufferImageCopy ImageCopy{};
+				ImageCopy.bufferOffset = 0;
+				ImageCopy.bufferRowLength = 0;
+				ImageCopy.bufferImageHeight = 0;
 
-						ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-						ImageCopy.imageSubresource.mipLevel = 0;
-						ImageCopy.imageSubresource.baseArrayLayer = 0;
-						ImageCopy.imageSubresource.layerCount = 1;
+				ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				ImageCopy.imageSubresource.mipLevel = 0;
+				ImageCopy.imageSubresource.baseArrayLayer = 0;
+				ImageCopy.imageSubresource.layerCount = 1;
 
-						ImageCopy.imageOffset = { 0, 0, 0 };
-						ImageCopy.imageExtent = { Width, Height, 1 };
+				ImageCopy.imageOffset = { 0, 0, 0 };
+				ImageCopy.imageExtent = { Width, Height, 1 };
 
-						// Copy buffer data to image
-						vkCmdCopyBufferToImage
-						(
-							Buf,
-							Result->StagingBuffer,
-							Result->TextureImage,
-							VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-							1,
-							&ImageCopy
-						);
-					});
+				// Copy buffer data to image
+				vkCmdCopyBufferToImage
+				(
+					Buf,
+					Result->StagingBuffer,
+					Result->TextureImage,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1,
+					&ImageCopy
+				);
 			});
+		});
 
 		// Transition image to be shader read optimal
 		ImmediateSubmitAndWait([&](CommandBuffer Buf)
-			{
-				GRenderAPI->TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, AttachmentUsage::ShaderRead);
-			});
+		{
+			TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, AttachmentUsage::ShaderRead);
+		});
 
 		// Create image view
 		VkImageViewCreateInfo ViewInfo{};
@@ -3527,9 +3510,9 @@ namespace llrm
 		ViewInfo.subresourceRange.baseArrayLayer = 0;
 		ViewInfo.subresourceRange.layerCount = 1;
 
-		if (vkCreateImageView(GVulkanInfo.Device, &ViewInfo, nullptr, &Result->TextureImageView) != VK_SUCCESS)
+		if (vkCreateImageView(GVulkanContext.Device, &ViewInfo, nullptr, &Result->TextureImageView) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create vulkan image view");
+			//GLog->critical("Failed to create vulkan image view");
 			return nullptr;
 		}
 
@@ -3551,18 +3534,18 @@ namespace llrm
 		SamplerInfo.minLod = 0.0f;
 		SamplerInfo.maxLod = 0.0f;
 
-		if (vkCreateSampler(GVulkanInfo.Device, &SamplerInfo, nullptr, &Result->TextureSampler) != VK_SUCCESS)
+		if (vkCreateSampler(GVulkanContext.Device, &SamplerInfo, nullptr, &Result->TextureSampler) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create vulkan sampler");
+			//GLog->critical("Failed to create vulkan sampler");
 			return nullptr;
 		}
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	FrameBuffer VulkanRenderingInterface::CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo)
+	FrameBuffer CreateFrameBuffer(FrameBufferCreateInfo* CreateInfo)
 	{
 		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(CreateInfo->TargetGraph);
 
@@ -3597,10 +3580,10 @@ namespace llrm
 
 		RECORD_RESOURCE_ALLOC(Result)
 
-			return Result;
+		return Result;
 	}
 
-	VertexBuffer VulkanRenderingInterface::CreateVertexBuffer(VertexBufferCreateInfo* CreateInfo)
+	VertexBuffer CreateVertexBuffer(VertexBufferCreateInfo* CreateInfo)
 	{
 		VulkanVertexBuffer* VulkanVbo = new VulkanVertexBuffer;
 		VulkanVbo->bHasIndexBuffer = CreateInfo->bCreateIndexBuffer;
@@ -3640,15 +3623,15 @@ namespace llrm
 		FenceCreate.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		FenceCreate.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-		if (vkCreateFence(GVulkanInfo.Device, &FenceCreate, nullptr, &VulkanVbo->VertexStagingCompleteFence) != VK_SUCCESS)
+		if (vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &VulkanVbo->VertexStagingCompleteFence) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create staging fence");
+			//GLog->critical("Failed to create staging fence");
 			return nullptr;
 		}
 
-		if (CreateInfo->bCreateIndexBuffer && vkCreateFence(GVulkanInfo.Device, &FenceCreate, nullptr, &VulkanVbo->IndexStagingCompleteFence) != VK_SUCCESS)
+		if (CreateInfo->bCreateIndexBuffer && vkCreateFence(GVulkanContext.Device, &FenceCreate, nullptr, &VulkanVbo->IndexStagingCompleteFence) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create staging fence");
+			//GLog->critical("Failed to create staging fence");
 			return nullptr;
 		}
 
@@ -3656,122 +3639,122 @@ namespace llrm
 		VkCommandBufferAllocateInfo AllocInfo{};
 		AllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		AllocInfo.commandBufferCount = 1;
-		AllocInfo.commandPool = GVulkanInfo.MainCommandPool;
+		AllocInfo.commandPool = GVulkanContext.MainCommandPool;
 		AllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-		if (vkAllocateCommandBuffers(GVulkanInfo.Device, &AllocInfo, &VulkanVbo->VertexStagingCommandBuffer) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(GVulkanContext.Device, &AllocInfo, &VulkanVbo->VertexStagingCommandBuffer) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create staging command buffer");
+			//GLog->critical("Failed to create staging command buffer");
 			return nullptr;
 		}
 
-		if (CreateInfo->bCreateIndexBuffer && vkAllocateCommandBuffers(GVulkanInfo.Device, &AllocInfo, &VulkanVbo->IndexStagingCommandBuffer) != VK_SUCCESS)
+		if (CreateInfo->bCreateIndexBuffer && vkAllocateCommandBuffers(GVulkanContext.Device, &AllocInfo, &VulkanVbo->IndexStagingCommandBuffer) != VK_SUCCESS)
 		{
-			GLog->critical("Failed to create staging command buffer");
+			//GLog->critical("Failed to create staging command buffer");
 			return nullptr;
 		}
 
 		RECORD_RESOURCE_ALLOC(VulkanVbo)
 
-			return VulkanVbo;
+		return VulkanVbo;
 	}
 
-	void VulkanRenderingInterface::DestroyVertexBuffer(VertexBuffer VertexBuffer)
+	void DestroyVertexBuffer(VertexBuffer VertexBuffer)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(VertexBuffer);
 		REMOVE_RESOURCE_ALLOC(VulkanVbo)
 
-			vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		if (VulkanVbo->bHasIndexBuffer)
 		{
-			vkFreeMemory(GVulkanInfo.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
-			vkFreeMemory(GVulkanInfo.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
-			vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->StagingIndexBuffer, nullptr);
-			vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
-			vkDestroyFence(GVulkanInfo.Device, VulkanVbo->IndexStagingCompleteFence, nullptr);
-			vkFreeCommandBuffers(GVulkanInfo.Device, GVulkanInfo.MainCommandPool, 1, &VulkanVbo->IndexStagingCommandBuffer);
+			vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingVertexBufferMemory, nullptr);
+			vkFreeMemory(GVulkanContext.Device, VulkanVbo->StagingIndexBufferMemory, nullptr);
+			vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingIndexBuffer, nullptr);
+			vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceIndexBuffer, nullptr);
+			vkDestroyFence(GVulkanContext.Device, VulkanVbo->IndexStagingCompleteFence, nullptr);
+			vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VulkanVbo->IndexStagingCommandBuffer);
 		}
 
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->DeviceVertexBufferMemory, nullptr);
-		vkFreeMemory(GVulkanInfo.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->StagingVertexBuffer, nullptr);
-		vkDestroyBuffer(GVulkanInfo.Device, VulkanVbo->DeviceVertexBuffer, nullptr);
-		vkDestroyFence(GVulkanInfo.Device, VulkanVbo->VertexStagingCompleteFence, nullptr);
-		vkFreeCommandBuffers(GVulkanInfo.Device, GVulkanInfo.MainCommandPool, 1, &VulkanVbo->VertexStagingCommandBuffer);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceVertexBufferMemory, nullptr);
+		vkFreeMemory(GVulkanContext.Device, VulkanVbo->DeviceIndexBufferMemory, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->StagingVertexBuffer, nullptr);
+		vkDestroyBuffer(GVulkanContext.Device, VulkanVbo->DeviceVertexBuffer, nullptr);
+		vkDestroyFence(GVulkanContext.Device, VulkanVbo->VertexStagingCompleteFence, nullptr);
+		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, 1, &VulkanVbo->VertexStagingCommandBuffer);
 
 		delete VulkanVbo;
 	}
 
-	void VulkanRenderingInterface::DestroyFrameBuffer(FrameBuffer FrameBuffer)
+	void DestroyFrameBuffer(FrameBuffer FrameBuffer)
 	{
 		VulkanFrameBuffer* VkFbo = static_cast<VulkanFrameBuffer*>(FrameBuffer);
 		REMOVE_RESOURCE_ALLOC(VkFbo)
 
-			vkDeviceWaitIdle(GVulkanInfo.Device);
+		vkDeviceWaitIdle(GVulkanContext.Device);
 
 		DestroyFramebufferImages(VkFbo);
 		DestroyFramebufferSamplers(VkFbo);
 
-		vkDestroyFramebuffer(GVulkanInfo.Device, VkFbo->VulkanFbo, nullptr);
+		vkDestroyFramebuffer(GVulkanContext.Device, VkFbo->VulkanFbo, nullptr);
 
 		delete VkFbo;
 	}
 
-	void VulkanRenderingInterface::DestroyCommandBuffer(CommandBuffer CmdBuffer)
+	void DestroyCommandBuffer(CommandBuffer CmdBuffer)
 	{
 		VulkanCommandBuffer* VkCmdBuffer = static_cast<VulkanCommandBuffer*>(CmdBuffer);
 		REMOVE_RESOURCE_ALLOC(VkCmdBuffer)
 
-			vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
-		vkFreeCommandBuffers(GVulkanInfo.Device, GVulkanInfo.MainCommandPool, static_cast<uint32_t>(VkCmdBuffer->CmdBuffers.size()), VkCmdBuffer->CmdBuffers.data());
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
+		vkFreeCommandBuffers(GVulkanContext.Device, GVulkanContext.MainCommandPool, static_cast<uint32_t>(VkCmdBuffer->CmdBuffers.size()), VkCmdBuffer->CmdBuffers.data());
 
 		delete VkCmdBuffer;
 	}
 
-	void VulkanRenderingInterface::DestroyRenderGraph(RenderGraph Graph)
+	void DestroyRenderGraph(RenderGraph Graph)
 	{
 		VulkanRenderGraph* VkRenderGraph = static_cast<VulkanRenderGraph*>(Graph);
 
-		vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
-		vkDestroyRenderPass(GVulkanInfo.Device, VkRenderGraph->RenderPass, nullptr);
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
+		vkDestroyRenderPass(GVulkanContext.Device, VkRenderGraph->RenderPass, nullptr);
 
 		REMOVE_RESOURCE_ALLOC(VkRenderGraph)
 
-			delete VkRenderGraph;
+		delete VkRenderGraph;
 	}
 
-	void VulkanRenderingInterface::DestroyPipeline(Pipeline Pipeline)
+	void DestroyPipeline(Pipeline Pipeline)
 	{
 		VulkanPipeline* VkPipeline = static_cast<VulkanPipeline*>(Pipeline);
 
-		vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 
 		// Destroy pipeline layout
-		vkDestroyPipelineLayout(GVulkanInfo.Device, VkPipeline->PipelineLayout, nullptr);
+		vkDestroyPipelineLayout(GVulkanContext.Device, VkPipeline->PipelineLayout, nullptr);
 
 		// Destroy pipeline
-		vkDestroyPipeline(GVulkanInfo.Device, VkPipeline->Pipeline, nullptr);
+		vkDestroyPipeline(GVulkanContext.Device, VkPipeline->Pipeline, nullptr);
 
 		REMOVE_RESOURCE_ALLOC(VkPipeline)
 
-			delete VkPipeline;
+		delete VkPipeline;
 	}
 
-	void VulkanRenderingInterface::DestroyShader(ShaderProgram Shader)
+	void DestroyShader(ShaderProgram Shader)
 	{
 		VulkanShader* VkShader = static_cast<VulkanShader*>(Shader);
 
-		vkQueueWaitIdle(GVulkanInfo.GraphicsQueue);
+		vkQueueWaitIdle(GVulkanContext.GraphicsQueue);
 
 		if (VkShader->bHasVertexShader)
-			vkDestroyShaderModule(GVulkanInfo.Device, VkShader->VertexModule, nullptr);
+			vkDestroyShaderModule(GVulkanContext.Device, VkShader->VertexModule, nullptr);
 		if (VkShader->bHasFragmentShader)
-			vkDestroyShaderModule(GVulkanInfo.Device, VkShader->FragmentModule, nullptr);
+			vkDestroyShaderModule(GVulkanContext.Device, VkShader->FragmentModule, nullptr);
 
 		REMOVE_RESOURCE_ALLOC(VkShader)
 
-			delete VkShader;
+		delete VkShader;
 	}
 
 	void DestroyTexture(Texture Image)
@@ -3790,9 +3773,8 @@ namespace llrm
 
 		REMOVE_RESOURCE_ALLOC(VkTex)
 
-			delete VkTex;
+		delete VkTex;
 	}
-
 
 }
 

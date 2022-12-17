@@ -1,6 +1,7 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
+#include <functional>
 
 struct GLFWwindow;
 
@@ -395,7 +396,6 @@ struct ResourceSetCreateInfo
 			return -1;
 	}
 
-
 	// Create primitives
 	ShaderProgram CreateShader(const ShaderCreateInfo* ProgramData);
 	SwapChain CreateSwapChain(Surface TargetSurface, int32_t DesiredWidth, int32_t DesiredHeight);
@@ -468,5 +468,23 @@ struct ResourceSetCreateInfo
 	void SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H);
 	void SetScissor(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H);
 
-    
+
+	inline void ImmediateSubmit(std::function<void(CommandBuffer)> InFunc, Fence WaitFence = nullptr, bool bWait = false)
+	{
+		CommandBuffer NewCmd = CreateCommandBuffer(true);
+
+		Begin(NewCmd);
+		{
+			InFunc(NewCmd);
+		}
+		End(NewCmd);
+
+		SubmitCommandBuffer(NewCmd, bWait, WaitFence);
+		DestroyCommandBuffer(NewCmd);
+	}
+
+	inline void ImmediateSubmitAndWait(std::function<void(CommandBuffer)> InFunc, Fence WaitFence = nullptr)
+	{
+		ImmediateSubmit(InFunc, WaitFence, true);
+	}
 };
