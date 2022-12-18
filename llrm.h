@@ -357,8 +357,8 @@ namespace llrm
 	void DestroyCommandBuffer(CommandBuffer CmdBuffer);
 
 	// Swap chain operations
-	int32_t BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight);
-	void Present(SwapChain Swap, Surface Target, const std::vector<CommandBuffer> &Buffers, int32_t FrameWidth, int32_t FrameHeight);
+	int32_t BeginFrame(GLFWwindow* Window, SwapChain Swap, Surface Target);
+	void EndFrame(const std::vector<CommandBuffer> &Buffers);
     void RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight);
 	void SubmitSwapCommandBuffer(SwapChain Target, CommandBuffer Buffer);
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height);

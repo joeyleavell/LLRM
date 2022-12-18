@@ -28,13 +28,22 @@ struct ShaderVertex
 
 void CreateSwapChain(llrm::SwapChain Swap, llrm::RenderGraph Graph, llrm::Pipeline Pipe, llrm::VertexBuffer Vbo, std::vector<llrm::FrameBuffer>& Fbos, std::vector<llrm::CommandBuffer>& CmdBuffers)
 {
-	CmdBuffers.resize(llrm::GetSwapChainImageCount(Swap));
-	Fbos.resize(CmdBuffers.size());
+	uint32_t Width, Height;
+	llrm::GetSwapChainSize(Swap, Width, Height);
+
+	CmdBuffers.resize(llrm::GetSwapChainImageCount(Swap), nullptr);
+	Fbos.resize(CmdBuffers.size(), nullptr);
 
 	for (uint32_t Image = 0; Image < Fbos.size(); Image++)
 	{
+		if(Fbos[Image])
+			llrm::DestroyFrameBuffer(Fbos[Image]);
+
+		if(CmdBuffers[Image])
+			llrm::DestroyCommandBuffer(CmdBuffers[Image]);
+
 		Fbos[Image] = llrm::CreateFrameBuffer({
-			800, 600,
+			Width, Height,
 			{llrm::GetSwapChainImage(Swap, Image)},
 			Graph
 			});
@@ -47,8 +56,8 @@ void CreateSwapChain(llrm::SwapChain Swap, llrm::RenderGraph Graph, llrm::Pipeli
 			//llrm::TransitionTexture(Buf, llrm::GetSwapChainImage(Swap, Image), llrm::AttachmentUsage::Presentation, llrm::AttachmentUsage::ColorAttachment);
 			llrm::BeginRenderGraph(Buf, Graph, Fbos[Image], { {llrm::ClearType::Float, 0.0f, 0.0f, 0.0f, 1.0f} });
 			{
-				llrm::SetViewport(Buf, 0, 0, 800, 600);
-				llrm::SetScissor(Buf, 0, 0, 800, 600);
+				llrm::SetViewport(Buf, 0, 0, Width, Height);
+				llrm::SetScissor(Buf, 0, 0, Width, Height);
 
 				llrm::BindPipeline(Buf, Pipe);
 				llrm::DrawVertexBuffer(Buf, Vbo, 3);
@@ -153,22 +162,31 @@ int main()
 	{
 		WindowData* WndDat = static_cast<WindowData*>(glfwGetWindowUserPointer(Wnd));
 
-		// Recreate swap
-		llrm::RecreateSwapChain(WndDat->Swap, WndDat->Surface, Width, Height);
+		if(Width > 0 || Height > 0)
+		{
+			// Recreate swap
+			llrm::RecreateSwapChain(WndDat->Swap, WndDat->Surface, Width, Height);
 
-		// Recreate attachments
-		CreateSwapChain(WndDat->Swap, WndDat->Graph, WndDat->Pipe, WndDat->Vbo, WndDat->Fbos, WndDat->CmdBuffers);
+			// Recreate attachments
+			CreateSwapChain(WndDat->Swap, WndDat->Graph, WndDat->Pipe, WndDat->Vbo, WndDat->Fbos, WndDat->CmdBuffers);
+		}
 	});
 
 	while(!glfwWindowShouldClose(Window))
 	{
 		glfwPollEvents();
 
-		int32_t ImageIndex = llrm::BeginFrame(WndDat.Swap, WndDat.Surface, 800, 600);
+		int32_t ImageIndex = llrm::BeginFrame(Window, WndDat.Swap, WndDat.Surface);
 		if(ImageIndex >= 0)
 		{
-			llrm::Present(WndDat.Swap, WndDat.Surface, { WndDat.CmdBuffers[ImageIndex] }, 800, 600);
+			llrm::EndFrame({ WndDat.CmdBuffers[ImageIndex] });
 		}
+	}
+
+	for (uint32_t Image = 0; Image < WndDat.Fbos.size(); Image++)
+	{
+		llrm::DestroyFrameBuffer(WndDat.Fbos[Image]);
+		llrm::DestroyCommandBuffer(WndDat.CmdBuffers[Image]);
 	}
 
 	llrm::DestroySwapChain(WndDat.Swap);

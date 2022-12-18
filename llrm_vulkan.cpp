@@ -151,7 +151,10 @@ struct VulkanContext
 	 */
 	VkQueue PresentQueue;
 
+	// Resources for current frame
 	VulkanSwapChain* CurrentSwapChain{};
+	GLFWwindow* CurrentWindow{};
+	llrm::Surface CurrentSurface{};
 
 	/**
 	 * Extensions that are used by the Vulkan instance.
@@ -1837,15 +1840,20 @@ namespace llrm
 		}
 	}
 
-	int32_t BeginFrame(SwapChain Swap, Surface Target, int32_t FrameWidth, int32_t FrameHeight)
+	int32_t BeginFrame(GLFWwindow* Window, llrm::SwapChain Swap, llrm::Surface Target)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
 
 		GVulkanContext.CurrentSwapChain = VkSwap;
+		GVulkanContext.CurrentSurface = Target;
+		GVulkanContext.CurrentWindow = Window;
 
 		VkSwap->bInsideFrame = true;
 
-		if (FrameWidth == 0 || FrameHeight == 0)
+		int32_t Width, Height;
+		glfwGetFramebufferSize(Window, &Width, &Height);
+
+		if (Width == 0 || Height == 0)
 		{
 			vkDeviceWaitIdle(GVulkanContext.Device);
 			return -1;
@@ -1858,7 +1866,7 @@ namespace llrm
 		// Vulkan swap chain needs to re-created immediately
 		if (ImageAcquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
-			RecreateSwapChain(Swap, Target, FrameWidth, FrameHeight);
+			RecreateSwapChain(Swap, Target, Width, Height);
 		}
 
 		// Previous frame using this image
@@ -1874,22 +1882,22 @@ namespace llrm
 		return VkSwap->AcquiredImageIndex;
 	}
 
-	void Present(SwapChain Swap, Surface Target, const std::vector<CommandBuffer>& Buffers, int32_t FrameWidth, int32_t FrameHeight)
+	void EndFrame(const std::vector<CommandBuffer>& Buffers)
 	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
-		GVulkanContext.CurrentSwapChain = nullptr;
+		GVulkanContext.CurrentSwapChain->bInsideFrame = false;
 
-		VkSwap->bInsideFrame = false;
+		int32_t Width, Height;
+		glfwGetFramebufferSize(GVulkanContext.CurrentWindow, &Width, &Height);
 
 		// Detect minimization
-		if (FrameWidth == 0 || FrameHeight == 0)
+		if (Width == 0 || Height == 0)
 		{
 			vkDeviceWaitIdle(GVulkanContext.Device);
 			return;
 		}
 
 		// Reset the fence that we're waiting on
-		vkResetFences(GVulkanContext.Device, 1, &VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence);
+		vkResetFences(GVulkanContext.Device, 1, &GVulkanContext.CurrentSwapChain->FramesInFlight[GVulkanContext.CurrentSwapChain->CurrentFrame].InFlightFence);
 
 		std::vector<VkCommandBuffer> VkBuffers(Buffers.size());
 		for (uint32_t Buffer = 0; Buffer < Buffers.size(); Buffer++)
@@ -1900,15 +1908,15 @@ namespace llrm
 		VkSubmitInfo QueueSubmit{};
 		QueueSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		QueueSubmit.waitSemaphoreCount = 1;
-		QueueSubmit.pWaitSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].ImageAvailableSemaphore;
+		QueueSubmit.pWaitSemaphores = &GVulkanContext.CurrentSwapChain->FramesInFlight[GVulkanContext.CurrentSwapChain->CurrentFrame].ImageAvailableSemaphore;
 		QueueSubmit.pWaitDstStageMask = WaitStages;
 		QueueSubmit.commandBufferCount = static_cast<uint32_t>(VkBuffers.size());
 		QueueSubmit.pCommandBuffers = VkBuffers.data();
 		QueueSubmit.signalSemaphoreCount = 1;
-		QueueSubmit.pSignalSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].RenderingFinishedSemaphore; // Signal when rendering is finished
+		QueueSubmit.pSignalSemaphores = &GVulkanContext.CurrentSwapChain->FramesInFlight[GVulkanContext.CurrentSwapChain->CurrentFrame].RenderingFinishedSemaphore; // Signal when rendering is finished
 
 		// Notify the in flight fence once the execution of this vkQueueSubmit is complete
-		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, static_cast<uint32_t>(VkBuffers.size()), &QueueSubmit, VkSwap->FramesInFlight[VkSwap->CurrentFrame].InFlightFence) != VK_SUCCESS)
+		if (vkQueueSubmit(GVulkanContext.GraphicsQueue, static_cast<uint32_t>(VkBuffers.size()), &QueueSubmit, GVulkanContext.CurrentSwapChain->FramesInFlight[GVulkanContext.CurrentSwapChain->CurrentFrame].InFlightFence) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to submit vulkan command buffers to graphics queue");
 		}
@@ -1917,10 +1925,10 @@ namespace llrm
 		VkPresentInfoKHR PresentInfo{};
 		PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		PresentInfo.waitSemaphoreCount = 1;
-		PresentInfo.pWaitSemaphores = &VkSwap->FramesInFlight[VkSwap->CurrentFrame].RenderingFinishedSemaphore; // Wait for rendering to complete before presenting
+		PresentInfo.pWaitSemaphores = &GVulkanContext.CurrentSwapChain->FramesInFlight[GVulkanContext.CurrentSwapChain->CurrentFrame].RenderingFinishedSemaphore; // Wait for rendering to complete before presenting
 		PresentInfo.swapchainCount = 1;
-		PresentInfo.pSwapchains = &VkSwap->SwapChain;
-		PresentInfo.pImageIndices = &VkSwap->AcquiredImageIndex;
+		PresentInfo.pSwapchains = &GVulkanContext.CurrentSwapChain->SwapChain;
+		PresentInfo.pImageIndices = &GVulkanContext.CurrentSwapChain->AcquiredImageIndex;
 		PresentInfo.pResults = nullptr;
 
 		// Present the rendered image
@@ -1928,11 +1936,15 @@ namespace llrm
 
 		if (PresentResult == VK_ERROR_OUT_OF_DATE_KHR || PresentResult == VK_SUBOPTIMAL_KHR)
 		{
-			RecreateSwapChain(Swap, Target, FrameWidth, FrameHeight);
+			RecreateSwapChain(GVulkanContext.CurrentSwapChain, GVulkanContext.CurrentSurface, Width, Height);
 		}
 
 		// Advance the current frame
-		VkSwap->CurrentFrame = (VkSwap->CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+		GVulkanContext.CurrentSwapChain->CurrentFrame = (GVulkanContext.CurrentSwapChain->CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+		GVulkanContext.CurrentSwapChain = nullptr;
+		GVulkanContext.CurrentSurface = nullptr;
+		GVulkanContext.CurrentWindow = nullptr;
 	}
 
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height)
