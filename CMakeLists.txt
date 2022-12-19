@@ -5,11 +5,13 @@ project ("LLRM")
 
 set (LLRM_TARGET LLRM)
 set (LLRM_TEST_TARGET LLRM-test)
+set (LLRM_TEST_TARGET LLRM-test)
 
 option(LLRM_BUILD_VULKAN "Selects whether LLRM will build the Vulkan backend" ON)
 option(LLRM_VULKAN_VALIDATION "Whether LLRM will enable vulkan validation layers. The Vulkan SDK is required for this." ON)
 option(LLRM_VULKAN_MOLTENVK "Whether LLRM will need extra extensions for MoltenVK usage." OFF)
 option(LLRM_BUILD_TEST "Whether to build the test application" ON)
+option(BUILD_RUBY "Whether to build the ruby rendering engine" ON)
 
 # TODO: make this separate project
 option(BUILD_RUBY "Builds the ruby rendering engine" ON)
@@ -66,6 +68,10 @@ if(LLRM_BUILD_TEST)
 
     install(TARGETS ${LLRM_TEST_TARGET})
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Shaders DESTINATION .)
+endif()
+
+if(BUILD_RUBY)
+    add_subdirectory(Ruby)
 endif()
 
 target_sources(${LLRM_TARGET} PRIVATE
