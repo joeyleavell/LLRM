@@ -11,6 +11,9 @@ option(LLRM_VULKAN_VALIDATION "Whether LLRM will enable vulkan validation layers
 option(LLRM_VULKAN_MOLTENVK "Whether LLRM will need extra extensions for MoltenVK usage." OFF)
 option(LLRM_BUILD_TEST "Whether to build the test application" ON)
 
+# TODO: make this separate project
+option(BUILD_RUBY "Builds the ruby rendering engine" ON)
+
 FetchContent_Declare(
   VulkanHeaders
   GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git

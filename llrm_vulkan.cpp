@@ -1859,7 +1859,7 @@ namespace llrm
 			return -1;
 		}
 
-		// Acquire image
+		// Acquire image, this is the swapchain image index that we will be rendering command buffers for + presenting to this frame.
 		VkResult ImageAcquireResult = vkAcquireNextImageKHR(GVulkanContext.Device, VkSwap->SwapChain, UINT64_MAX,
 			VkSwap->FramesInFlight[VkSwap->CurrentFrame].ImageAvailableSemaphore, VK_NULL_HANDLE, &VkSwap->AcquiredImageIndex);
 
@@ -1873,6 +1873,7 @@ namespace llrm
 		if (VkSwap->ImageFences[VkSwap->AcquiredImageIndex] != VK_NULL_HANDLE)
 		{
 			// Wait for the previous frame to complete execution of vkQueueSubmit
+			// This is necessary because it's possible the command buffer submitted is still being used on the GPU, 
 			vkWaitForFences(GVulkanContext.Device, 1, &VkSwap->ImageFences[VkSwap->AcquiredImageIndex], VK_TRUE, UINT64_MAX);
 		}
 
