@@ -468,7 +468,7 @@ bool PickPhysicalDevice(
 				}
 
 				// Check if this queue family supports presentation to the created surface. If so, save this result.
-				if(glfwGetPhysicalDevicePresentationSupport(Instance, PhysicalDevice, QueueFamIndex))
+				if(glfwGetPhysicalDevicePresentationSupport(Instance, PhysicalDevice, QueueFamIndex) == GLFW_TRUE)
 				{
 					PresentQueueFam = static_cast<int32_t>(QueueFamIndex);
 				}
@@ -603,7 +603,7 @@ namespace llrm
 {
 	VulkanContext GVulkanContext;
 
-	llrm::Context CreateContext(GLFWwindow* Window)
+	llrm::Context CreateContext()
 	{
 		VulkanContext* VkContext = new ::VulkanContext;
 
@@ -1403,7 +1403,7 @@ namespace llrm
 		});
 	}
 
-	bool CreateShaderModule(std::vector<uint32_t> SpvCode, VkShaderModule& OutShaderModule)
+	bool CreateShaderModule(const std::vector<uint32_t>& SpvCode, VkShaderModule& OutShaderModule)
 	{
 		VkShaderModuleCreateInfo CreateInfo{};
 		CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

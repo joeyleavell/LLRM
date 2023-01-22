@@ -10,7 +10,7 @@ namespace llrm
 	const uint64_t TEXTURE_USAGE_WRITE = 1 << 1; // We can upload data to this texture from the CPU, or transfer to this texture on the GPU
 	const uint64_t TEXTURE_USAGE_SAMPLE = 1 << 2; // We will sample this texture in a shader
 	const uint64_t TEXTURE_USAGE_RT = 1 << 3; // Used as a render target (color, depth, etc.)
-	const uint64_t TEXTURE_USAGE_READ = 1 << 3; // We can read from this texture on the CPU, or we can transfer from this texture on the GPU
+	const uint64_t TEXTURE_USAGE_READ = 1 << 4; // We can read from this texture on the CPU, or we can transfer from this texture on the GPU
 
 	// Rendering primitives
 	typedef void* Pipeline;
@@ -295,7 +295,7 @@ namespace llrm
 	 *
 	 * LLRM currently relies on GLFW, but a future plan is to remove the tie to a particular windowing framework.
 	 */
-	Context CreateContext(GLFWwindow* Window);
+	Context CreateContext();
 	void DestroyContext(llrm::Context Context);
 	void SetContext(llrm::Context Context);
 

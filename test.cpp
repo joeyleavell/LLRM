@@ -76,7 +76,7 @@ int main()
 	glfwSetWindowUserPointer(Window, &WndDat);
 
 	// Create context
-	llrm::Context Context = llrm::CreateContext(Window);
+	llrm::Context Context = llrm::CreateContext();
 	if(!Context)
 	{
 		std::cout << "Failed to create rendering context" << std::endl;
