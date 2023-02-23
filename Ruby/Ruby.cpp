@@ -13,6 +13,31 @@ namespace Ruby
 	RenderingAPI GAPI = RenderingAPI::Vulkan;
 #endif
 
+
+	void UpdateSwapChain(llrm::SwapChain Swap, llrm::RenderGraph Graph, std::vector<llrm::FrameBuffer>& Fbos, std::vector<llrm::CommandBuffer>& CmdBuffers)
+	{
+		uint32_t Width, Height;
+		llrm::GetSwapChainSize(Swap, Width, Height);
+
+		CmdBuffers.resize(llrm::GetSwapChainImageCount(Swap), nullptr);
+		Fbos.resize(CmdBuffers.size(), nullptr);
+
+		for (uint32_t Image = 0; Image < Fbos.size(); Image++)
+		{
+			if (Fbos[Image])
+				llrm::DestroyFrameBuffer(Fbos[Image]);
+
+			Fbos[Image] = llrm::CreateFrameBuffer({
+				Width, Height,
+				{llrm::GetSwapChainImage(Swap, Image)},
+				Graph
+				});
+
+			if (!CmdBuffers[Image])
+				CmdBuffers[Image] = llrm::CreateCommandBuffer();
+		}
+	}
+
 	RubyContext CreateContext(const ContextParams& Params)
 	{  
 		RubyContext NewContext{};
@@ -49,6 +74,48 @@ namespace Ruby
 	void SetContext(const RubyContext& Context)
 	{
 		GContext = Context;
+	}
+
+	SwapChain CreateSwapChain(GLFWwindow* Wnd)
+	{
+		SwapChain Swap{};
+
+		// Create surface and set mWnd
+		{
+			Swap.mSurface = llrm::CreateSurface(Wnd);
+			Swap.mWnd = Wnd;
+		}
+
+		// Create llrm::SwapChain
+		{
+			int Width, Height;
+			glfwGetFramebufferSize(Wnd, &Width, &Height);
+			Swap.mSwap = llrm::CreateSwapChain(Swap.mSurface, Width, Height);
+		}
+
+		// Create render graph for window
+		{
+			llrm::RenderGraphCreateInfo Info{};
+			Info.Attachments.push_back({
+				llrm::AttachmentUsage::Undefined,
+				llrm::AttachmentUsage::Presentation,
+				llrm::GetTextureFormat(llrm::GetSwapChainImage(Swap.mSwap, 0)),
+			});
+			Info.Passes = { {{0}} };
+
+			Swap.mGraph = llrm::CreateRenderGraph(Info);
+		}
+
+		// Create command buffers and frame buffers
+		UpdateSwapChain(Swap.mSwap, Swap.mGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
+
+		return Swap;
+	}
+
+	void DestroySwapChain(const SwapChain& Swap)
+	{
+		llrm::DestroySwapChain(Swap.mSwap);
+		llrm::DestroySurface(Swap.mSurface);
 	}
 
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
@@ -95,9 +162,52 @@ namespace Ruby
 
 	}
 
-	void RenderScene(const Scene& Scene, const FrameBuffer& Target)
+	void InitSceneResources(const Scene& Scene)
 	{
+		// Create scene resources
+		SceneResources NewResources{};
 
+		GContext.mResources.emplace(Scene.mId, NewResources);
+	}
+
+	void RenderScene(const Scene& Scene, const llrm::CommandBuffer& DstCmd, const llrm::FrameBuffer& DstBuf, const llrm::RenderGraph& DstGraph)
+	{
+		if(!GContext.mResources.contains(Scene.mId))
+		{
+			InitSceneResources(Scene);
+		}
+
+		SceneResources& Resources = GContext.mResources[Scene.mId];
+
+		// Render the scene
+		llrm::Begin(DstCmd);
+		{
+			std::vector<llrm::ClearValue> ClearValues = { {llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f} };
+			llrm::BeginRenderGraph(DstCmd, DstGraph, DstBuf, ClearValues);
+			{
+				// Draw things
+			}
+			llrm::EndRenderGraph(DstCmd);
+		}
+		llrm::End(DstCmd);
+	}
+
+	void RenderScene(const Scene& Scene, const SwapChain& Target)
+	{
+		int32_t ImageIndex = llrm::BeginFrame(Target.mWnd, Target.mSwap, Target.mSurface);
+
+		if(ImageIndex >= 0)
+		{
+			const llrm::FrameBuffer& Buffer = Target.mFrameBuffers[ImageIndex];
+			const llrm::CommandBuffer& Cmd = Target.mCmdBuffers[ImageIndex];
+
+			uint32_t Width{}, Height{};
+			llrm::GetFrameBufferSize(Buffer, Width, Height);
+
+			RenderScene(Scene, Cmd, Buffer, Target.mGraph);
+
+			llrm::EndFrame({ Cmd });
+		}
 	}
 
 }

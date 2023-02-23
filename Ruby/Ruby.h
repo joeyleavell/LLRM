@@ -2,6 +2,8 @@
 
 #include <string>
 #include "llrm.h"
+#include "Ruby.h"
+#include "Ruby.h"
 
 namespace Ruby
 {
@@ -10,12 +12,29 @@ namespace Ruby
 		Vulkan
 	};
 
+	struct SceneResources
+	{
+
+	};
+
 	struct RubyContext
 	{
 		std::string ShadersRoot;
 		std::string CompiledShaders;
 
 		llrm::Context LLContext{};
+
+		std::unordered_map<uint32_t, SceneResources> mResources;
+	};
+
+	struct SwapChain
+	{
+		GLFWwindow* mWnd = nullptr;
+		llrm::Surface mSurface;
+		llrm::SwapChain mSwap;
+		llrm::RenderGraph mGraph;
+		std::vector<llrm::FrameBuffer> mFrameBuffers;
+		std::vector<llrm::CommandBuffer> mCmdBuffers;
 	};
 
 	struct ContextParams
@@ -27,6 +46,11 @@ namespace Ruby
 	RubyContext CreateContext(const ContextParams& Params);
 	void DestroyContext(const RubyContext& Context);
 	void SetContext(const RubyContext& Context);
+	SwapChain CreateSwapChain(GLFWwindow* Wnd);
+	void DestroySwapChain(const SwapChain& Swap);
+
+	int32_t BeginFrame(SwapChain Swap);
+	void EndFrame();
 
 	extern RubyContext GContext;
 
@@ -53,21 +77,19 @@ namespace Ruby
 		llrm::Surface Surface{};
 	};
 
-	struct SceneResources
-	{
-		
-	};
-
 	class Scene
 	{
 	public:
 
-		SceneResources& GetResources() { return Resources; }
+		uint32_t mId;
 
-	private:
-		SceneResources Resources;
+		Scene(uint32_t Id)
+		{
+			mId = Id;
+		}
+
 	};
 
-	void RenderScene(const Scene& Scene, const FrameBuffer& Target);
+	void RenderScene(const Scene& Scene, const SwapChain& Target);
 
 }
