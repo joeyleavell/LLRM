@@ -118,6 +118,46 @@ namespace Ruby
 		llrm::DestroySurface(Swap.mSurface);
 	}
 
+	Mesh CreateMesh(const Tesselation& Tesselation)
+	{
+		Mesh Result;
+
+		Result.mId = GContext.mNextMeshId;
+		Result.mVbo = llrm::CreateVertexBuffer(Tesselation.mVerts.size() * sizeof(MeshVertex), Tesselation.mVerts.data());
+		Result.mIbo = llrm::CreateIndexBuffer(Tesselation.mIndicies.size() * sizeof(uint32_t), Tesselation.mIndicies.data());
+		GContext.mNextMeshId++;
+		GContext.mMeshes.emplace(Result.mId, Result);
+
+		return Result;
+	}
+
+	void DestroyMesh(const Mesh& Mesh)
+	{
+		llrm::DestroyVertexBuffer(Mesh.mVbo);
+		llrm::DestroyIndexBuffer(Mesh.mIbo);
+
+		GContext.mMeshes.erase(Mesh.mId);
+	}
+
+	Object CreateObject(const Mesh& Mesh, glm::vec3 Position)
+	{
+		Object Result;
+		Result.mId = GContext.mNextMeshId;
+		Result.mMeshId = Mesh.mId;
+		Result.Position = Position;
+
+		GContext.mNextMeshId++;
+		GContext.mObjects.emplace(Result.mId, Result);
+
+		return Result;
+	}
+
+	void DestroyObject(const Object& Object)
+	{
+		GContext.mObjects.erase(Object.mId);
+		// Todo: Free up Object ID
+	}
+
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
 	{
 		FrameBuffer NewBuffer{};

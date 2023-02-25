@@ -335,8 +335,8 @@ namespace llrm
 	Pipeline CreatePipeline(const PipelineState& CreateInfo);
 	RenderGraph CreateRenderGraph(const RenderGraphCreateInfo& CreateInfo);
 	FrameBuffer CreateFrameBuffer(const FrameBufferCreateInfo& CreateInfo);
-	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data = nullptr);
-	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data = nullptr);
+	VertexBuffer CreateVertexBuffer(uint64_t Size, const void* Data = nullptr);
+	IndexBuffer CreateIndexBuffer(uint64_t Size, const void* Data = nullptr);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo);
 
@@ -366,8 +366,8 @@ namespace llrm
 	Texture GetSwapChainImage(SwapChain Swap, uint32_t Index);
 
 	// Vertex buffer operations
-	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size);
-	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size);
+	void UploadVertexBufferData(VertexBuffer Buffer, const void* Data, uint64_t Size);
+	void UploadIndexBufferData(IndexBuffer Buffer, const uint32_t* Data, uint64_t Size);
 	void ResizeVertexBuffer(VertexBuffer Buffer, uint64_t NewSize);
 	void ResizeIndexBuffer(IndexBuffer Buffer, uint64_t NewSize);
 

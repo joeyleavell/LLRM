@@ -2,6 +2,11 @@
 #include "ShaderManager.h"
 #include "GLFW/glfw3.h"
 
+void CreateScene()
+{
+
+}
+
 int main()
 {
 	// Create window

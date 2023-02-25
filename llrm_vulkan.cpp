@@ -2072,7 +2072,7 @@ namespace llrm
 		delete[] ImageInfos;
 	}
 
-	void SynchronizedUploadBufferData(VkFence StagingFence, uint64_t Size, void* Data,
+	void SynchronizedUploadBufferData(VkFence StagingFence, uint64_t Size, const void* Data,
 		VkCommandBuffer StagingCommandBuffer,
 		VkDeviceMemory StagingMemory, VkBuffer StagingBuffer,
 		VkBuffer DeviceBuffer,
@@ -2157,7 +2157,7 @@ namespace llrm
 		vkQueueSubmit(GVulkanContext.GraphicsQueue, 1, &QueueSubmit, StagingFence);
 	}
 
-	void UploadVertexBufferData(VertexBuffer Buffer, void* Data, uint64_t Size)
+	void UploadVertexBufferData(VertexBuffer Buffer, const void* Data, uint64_t Size)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Buffer);
 
@@ -2170,7 +2170,7 @@ namespace llrm
 
 	}
 
-	void UploadIndexBufferData(IndexBuffer Buffer, uint32_t* Data, uint64_t Size)
+	void UploadIndexBufferData(IndexBuffer Buffer, const uint32_t* Data, uint64_t Size)
 	{
 		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(Buffer);
 
@@ -3093,7 +3093,7 @@ namespace llrm
 		return Result;
 	}
 
-	VertexBuffer CreateVertexBuffer(uint64_t Size, void* Data)
+	VertexBuffer CreateVertexBuffer(uint64_t Size, const void* Data)
 	{
 		VulkanVertexBuffer* VulkanVbo = new VulkanVertexBuffer;
 
@@ -3145,7 +3145,7 @@ namespace llrm
 		return VulkanVbo;
 	}
 
-	IndexBuffer CreateIndexBuffer(uint64_t Size, void* Data)
+	IndexBuffer CreateIndexBuffer(uint64_t Size, const void* Data)
 	{
 		VulkanIndexBuffer* VulkanIbo = new VulkanIndexBuffer;
 
