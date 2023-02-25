@@ -1,3 +1,13 @@
+cbuffer CameraUniforms : register(b0, space0)
+{
+    float4x4 ViewProjection;
+}
+
+cbuffer ModelUniforms : register(b1, space0)
+{
+    float4x4 Transform;
+}
+
 struct VSIn
 {
     float3 Position : SV_Position;
@@ -11,7 +21,7 @@ struct VSOut
 VSOut main(VSIn Input)
 {
     VSOut Output;
-    Output.Position = float4(Input.Position, 100.0) + float4(0.0f, 0.0f, 5.4f, 0.0f);
+    Output.Position = ViewProjection * (Transform * float4(Input.Position, 1.0));
 
     return Output;
 }

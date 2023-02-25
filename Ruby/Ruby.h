@@ -2,11 +2,10 @@
 
 #include <string>
 #include <unordered_set>
-
 #include "llrm.h"
-#include "Ruby.h"
-#include "Ruby.h"
+#include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
+#include "Uniforms.h"
 
 namespace Ruby
 {
@@ -21,6 +20,13 @@ namespace Ruby
 	struct SceneResources
 	{
 
+	};
+
+	struct Camera
+	{
+		glm::vec3 mPosition;
+		glm::vec3 mRotation;
+		glm::mat4 mProjection;
 	};
 
 	struct Mesh
@@ -74,6 +80,7 @@ namespace Ruby
 		llrm::SwapChain mSwap;
 		llrm::RenderGraph mGraph;
 		llrm::Pipeline mPipeline;
+		llrm::ResourceSet mResources;
 		std::vector<llrm::FrameBuffer> mFrameBuffers;
 		std::vector<llrm::CommandBuffer> mCmdBuffers;
 	};
@@ -137,6 +144,10 @@ namespace Ruby
 		llrm::Surface Surface{};
 	};
 
-	void RenderScene(SceneId Scene, const SwapChain& Target);
+	void RenderScene(SceneId Scene, 
+		glm::ivec2 ViewportSize, 
+		const Camera& Camera, 
+		const SwapChain& Target
+	);
 
 }

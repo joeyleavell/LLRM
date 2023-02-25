@@ -54,8 +54,6 @@ namespace Ruby
 		{
 			NewContext.ShadersRoot = GetDefaultShadersPath();
 		}
-		  
-		GContext = NewContext;
 
 		if (!glfwInit())
 			return {}; // Error
@@ -64,7 +62,13 @@ namespace Ruby
 
 		Ruby::InitShaderCompilation();
 
-		NewContext.mDeferredGeometryRl = llrm::CreateResourceLayout({{}, {}});
+		NewContext.mDeferredGeometryRl = llrm::CreateResourceLayout({
+			{
+				{0, llrm::ShaderStage::Vertex, sizeof(CameraVertexUniforms), 1},
+				{1, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1},
+		}, {}});
+
+		GContext = NewContext;
 
 		return NewContext;
 	}
@@ -108,6 +112,8 @@ namespace Ruby
 
 			Swap.mGraph = llrm::CreateRenderGraph(Info);
 		}
+
+		Swap.mResources = llrm::CreateResourceSet({ Swap.mSwap, GContext.mDeferredGeometryRl });
 
 		// Create final pipeline stage
 		{
@@ -266,7 +272,26 @@ namespace Ruby
 		GContext.mResources.emplace(Scene.mId, NewResources);
 	}
 
-	void RenderScene(const Scene& Scene, glm::ivec2 ViewportSize, const llrm::CommandBuffer& DstCmd, const llrm::FrameBuffer& DstBuf, const llrm::RenderGraph& DstGraph, const llrm::Pipeline& DstPipeline)
+	void UpdateCameraUniforms(llrm::ResourceSet DstRes, llrm::SwapChain DstSwap, const Camera& Camera)
+	{
+		glm::mat4 ViewMatrix = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
+			
+		CameraVertexUniforms CamUniforms{
+glm::transpose(ViewMatrix * Camera.mProjection)
+		};
+		llrm::UpdateUniformBuffer(DstRes, DstSwap, 0, &CamUniforms, sizeof(CamUniforms));
+	}
+
+	void RenderScene(const Scene& Scene, 
+		glm::ivec2 ViewportSize, 
+		const Camera& Camera,
+		const llrm::CommandBuffer& DstCmd, 
+		const llrm::FrameBuffer& DstBuf, 
+		const llrm::RenderGraph& DstGraph, 
+		const llrm::Pipeline& DstPipeline,
+		const llrm::ResourceSet& DstResources,
+		const llrm::SwapChain& DstSwap
+	)
 	{
 		if(!GContext.mResources.contains(Scene.mId))
 		{
@@ -274,6 +299,20 @@ namespace Ruby
 		}
 
 		SceneResources& Resources = GContext.mResources[Scene.mId];
+
+		UpdateCameraUniforms(DstResources, DstSwap, Camera);
+
+		// Create model uniforms
+		for (uint32_t Object : Scene.mObjects)
+		{
+			Ruby::Object& Obj = GetObject(Object);
+
+			// Create transform matrix
+			ModelVertexUniforms ModelUniforms {
+				glm::transpose(BuildTransform(Obj.Position, {0, 0, 0}, {1, 1, 1}))
+			};
+			llrm::UpdateUniformBuffer(DstResources, DstSwap, 1, &ModelUniforms, sizeof(ModelUniforms));
+		}
 
 		// Render the scene
 		llrm::Begin(DstCmd);
@@ -286,6 +325,7 @@ namespace Ruby
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
 				llrm::BindPipeline(DstCmd, DstPipeline);
+				llrm::BindResources(DstCmd, DstResources);
 
 				for(uint32_t Object : Scene.mObjects)
 				{
@@ -300,7 +340,11 @@ namespace Ruby
 		llrm::End(DstCmd);
 	}
 
-	void RenderScene(SceneId Id, const SwapChain& Target)
+	void RenderScene(SceneId Id, 
+		glm::ivec2 ViewportSize, 
+		const Camera& Camera,
+		const SwapChain& Target
+	)
 	{
 		Scene& ToRender = GContext.mScenes[Id];
 
@@ -311,10 +355,16 @@ namespace Ruby
 			const llrm::FrameBuffer& Buffer = Target.mFrameBuffers[ImageIndex];
 			const llrm::CommandBuffer& Cmd = Target.mCmdBuffers[ImageIndex];
 
-			uint32_t Width{}, Height{};
-			llrm::GetFrameBufferSize(Buffer, Width, Height);
-
-			RenderScene(ToRender, {Width, Height}, Cmd, Buffer, Target.mGraph, Target.mPipeline);
+			RenderScene(ToRender, 
+				ViewportSize, 
+				Camera, 
+				Cmd, 
+				Buffer, 
+				Target.mGraph, 
+				Target.mPipeline,
+				Target.mResources,
+				Target.mSwap
+			);
 
 			llrm::EndFrame({ Cmd });
 		}
