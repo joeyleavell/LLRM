@@ -10,6 +10,9 @@
 
 namespace Ruby
 {
+
+	typedef uint32_t SceneId;
+
 	enum class RenderingAPI
 	{
 		Vulkan
@@ -25,6 +28,7 @@ namespace Ruby
 		uint32_t mId;
 		llrm::VertexBuffer mVbo;
 		llrm::IndexBuffer mIbo;
+		uint32_t mIndexCount;
 	};
 
 	struct Object
@@ -34,6 +38,14 @@ namespace Ruby
 		glm::vec3 Position;
 	};
 
+	class Scene
+	{
+	public:
+
+		uint32_t mId;
+		std::unordered_set<uint32_t> mObjects;
+	};
+
 	struct RubyContext
 	{
 		std::string ShadersRoot;
@@ -41,12 +53,18 @@ namespace Ruby
 
 		llrm::Context LLContext{};
 
+		// Pipelines
+		llrm::Pipeline mDeferredGeometryPipe;
+		llrm::RenderGraph mDeferredGeometryRg;
+		llrm::ResourceLayout mDeferredGeometryRl;
+
 		std::unordered_map<uint32_t, SceneResources> mResources;
 
 		std::unordered_map<uint32_t, Mesh> mMeshes;
 		std::unordered_map<uint32_t, Object> mObjects;
+		std::unordered_map<uint32_t, Scene> mScenes;
 
-		uint32_t mNextMeshId = 0, mNextObjectId = 0;
+		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0;
 	};
 
 	struct SwapChain
@@ -55,6 +73,7 @@ namespace Ruby
 		llrm::Surface mSurface;
 		llrm::SwapChain mSwap;
 		llrm::RenderGraph mGraph;
+		llrm::Pipeline mPipeline;
 		std::vector<llrm::FrameBuffer> mFrameBuffers;
 		std::vector<llrm::CommandBuffer> mCmdBuffers;
 	};
@@ -85,10 +104,18 @@ namespace Ruby
 	// Mesh
 	Mesh CreateMesh(const Tesselation& Tesselation);
 	void DestroyMesh(const Mesh& Mesh);
+	Mesh& GetMesh(uint32_t MeshId);
 
 	// Object
 	Object CreateObject(const Mesh& Mesh, glm::vec3 Position);
 	void DestroyObject(const Object& Object);
+	Object& GetObject(uint32_t ObjectId);
+
+	// Scene
+	SceneId CreateScene();
+	void DestroyScene(SceneId Scene);
+	void AddObject(SceneId Scene, const Object& Object);
+	void RemoveObject(SceneId Scene, const Object& Object);
 
 	extern RubyContext GContext;
 
@@ -110,33 +137,6 @@ namespace Ruby
 		llrm::Surface Surface{};
 	};
 
-	class Scene
-	{
-	public:
-
-		uint32_t mId;
-
-		Scene(uint32_t Id)
-		{
-			mId = Id;
-		}
-
-		void AddObject(const Object& Object)
-		{
-			mObjects.insert(Object.mId);
-		}
-
-		void RemoveObject(const Object& Object)
-		{
-			mObjects.erase(Object.mId);
-		}
-
-	private:
-
-		std::unordered_set<uint32_t> mObjects;
-
-	};
-
-	void RenderScene(const Scene& Scene, const SwapChain& Target);
+	void RenderScene(SceneId Scene, const SwapChain& Target);
 
 }

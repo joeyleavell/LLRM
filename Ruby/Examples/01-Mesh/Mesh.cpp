@@ -1,10 +1,19 @@
 #include "Ruby.h"
 #include "ShaderManager.h"
 #include "GLFW/glfw3.h"
+#include "MeshGenerator.h"
 
-void CreateScene()
+Ruby::SceneId CreateScene()
 {
+	Ruby::SceneId NewScene = Ruby::CreateScene();
 
+	// Create object in front of camera
+	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 0, 0, 0 }, { 10, 10, 10 }));
+	Ruby::Object Obj = Ruby::CreateObject(Floor, { 0, 0, 5.0f });
+
+	Ruby::AddObject(NewScene, Obj);
+
+	return NewScene;
 }
 
 int main()
@@ -26,7 +35,7 @@ int main()
 
 	Ruby::SwapChain Swap = Ruby::CreateSwapChain(Wnd);
 
-	Ruby::Scene NewScene(0);
+	Ruby::SceneId NewScene = CreateScene();
 
 	while(!glfwWindowShouldClose(Wnd))
 	{

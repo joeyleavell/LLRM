@@ -10,12 +10,12 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	Size /= 2.0f;
 
 	glm::vec3 BackLeftBottom = Pos + glm::vec3{-Size.x, -Size.y, -Size.z};
-	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, -Size.y, -Size.z };
+	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, Size.y, -Size.z };
 	glm::vec3 BackRightTop = Pos + glm::vec3{ Size.x, Size.y, -Size.z };
 	glm::vec3 BackRightBottom = Pos + glm::vec3{ Size.x, -Size.y, -Size.z };
 
 	glm::vec3 FrontLeftBottom = Pos + glm::vec3{ -Size.x, -Size.y, Size.z };
-	glm::vec3 FrontLeftTop = Pos + glm::vec3{ -Size.x, -Size.y, Size.z };
+	glm::vec3 FrontLeftTop = Pos + glm::vec3{ -Size.x, Size.y, Size.z };
 	glm::vec3 FrontRightTop = Pos + glm::vec3{ Size.x, Size.y, Size.z };
 	glm::vec3 FrontRightBottom = Pos + glm::vec3{ Size.x, -Size.y, Size.z };
 
@@ -31,8 +31,8 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	Result.mVerts.emplace_back(FrontRightBottom); // 7
 
 	// Back face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 1, 2 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 2, 3, 0 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 2, 1, 0 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 3, 2 });
 
 	return Result;
 }

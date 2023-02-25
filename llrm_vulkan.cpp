@@ -2942,6 +2942,11 @@ namespace llrm
 			return nullptr;
 		}
 
+		if (Data)
+		{
+			UploadIndexBufferData(VulkanIbo, static_cast<const uint32_t*>(Data), Size);
+		}
+
 		RECORD_RESOURCE_ALLOC(VulkanIbo)
 		return VulkanIbo;
 	}

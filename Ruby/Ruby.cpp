@@ -4,6 +4,7 @@
 #include "GLFW/glfw3.h"
 #include "Utill.h"
 #include "ShaderManager.h"
+#include "glm/vec2.hpp"
 
 namespace Ruby
 {
@@ -63,6 +64,8 @@ namespace Ruby
 
 		Ruby::InitShaderCompilation();
 
+		NewContext.mDeferredGeometryRl = llrm::CreateResourceLayout({{}, {}});
+
 		return NewContext;
 	}
 
@@ -106,6 +109,21 @@ namespace Ruby
 			Swap.mGraph = llrm::CreateRenderGraph(Info);
 		}
 
+		// Create final pipeline stage
+		{
+			Swap.mPipeline = llrm::CreatePipeline({
+				LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
+				Swap.mGraph,
+				GContext.mDeferredGeometryRl,
+				sizeof(MeshVertex),
+				{{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}},
+				llrm::PipelineRenderPrimitive::TRIANGLES,
+				{{false}},
+				{false},
+				0
+			});
+		}
+
 		// Create command buffers and frame buffers
 		UpdateSwapChain(Swap.mSwap, Swap.mGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
 
@@ -125,6 +143,8 @@ namespace Ruby
 		Result.mId = GContext.mNextMeshId;
 		Result.mVbo = llrm::CreateVertexBuffer(Tesselation.mVerts.size() * sizeof(MeshVertex), Tesselation.mVerts.data());
 		Result.mIbo = llrm::CreateIndexBuffer(Tesselation.mIndicies.size() * sizeof(uint32_t), Tesselation.mIndicies.data());
+		Result.mIndexCount = Tesselation.mIndicies.size();
+
 		GContext.mNextMeshId++;
 		GContext.mMeshes.emplace(Result.mId, Result);
 
@@ -137,6 +157,11 @@ namespace Ruby
 		llrm::DestroyIndexBuffer(Mesh.mIbo);
 
 		GContext.mMeshes.erase(Mesh.mId);
+	}
+
+	Mesh& GetMesh(uint32_t MeshId)
+	{
+		return GContext.mMeshes[MeshId];
 	}
 
 	Object CreateObject(const Mesh& Mesh, glm::vec3 Position)
@@ -156,6 +181,37 @@ namespace Ruby
 	{
 		GContext.mObjects.erase(Object.mId);
 		// Todo: Free up Object ID
+	}
+
+	Object& GetObject(uint32_t ObjectId)
+	{
+		return GContext.mObjects[ObjectId];
+	}
+
+	SceneId CreateScene()
+	{
+		Scene NewScene{};
+		NewScene.mId = GContext.mNextSceneId;
+
+		GContext.mNextSceneId++;
+		GContext.mScenes.emplace(NewScene.mId, NewScene);
+
+		return NewScene.mId;
+	}
+
+	void DestroyScene(SceneId Scene)
+	{
+		GContext.mScenes.erase(Scene);
+	}
+
+	void AddObject(SceneId Scene, const Object& Object)
+	{
+		GContext.mScenes[Scene].mObjects.insert(Object.mId);
+	}
+
+	void RemoveObject(SceneId Scene, const Object& Object)
+	{
+		GContext.mScenes[Scene].mObjects.erase(Object.mId);
 	}
 
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
@@ -210,7 +266,7 @@ namespace Ruby
 		GContext.mResources.emplace(Scene.mId, NewResources);
 	}
 
-	void RenderScene(const Scene& Scene, const llrm::CommandBuffer& DstCmd, const llrm::FrameBuffer& DstBuf, const llrm::RenderGraph& DstGraph)
+	void RenderScene(const Scene& Scene, glm::ivec2 ViewportSize, const llrm::CommandBuffer& DstCmd, const llrm::FrameBuffer& DstBuf, const llrm::RenderGraph& DstGraph, const llrm::Pipeline& DstPipeline)
 	{
 		if(!GContext.mResources.contains(Scene.mId))
 		{
@@ -225,15 +281,29 @@ namespace Ruby
 			std::vector<llrm::ClearValue> ClearValues = { {llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f} };
 			llrm::BeginRenderGraph(DstCmd, DstGraph, DstBuf, ClearValues);
 			{
-				// Draw things
+				// Geometry
+				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+
+				llrm::BindPipeline(DstCmd, DstPipeline);
+
+				for(uint32_t Object : Scene.mObjects)
+				{
+					Ruby::Object& Obj = GetObject(Object);
+					Ruby::Mesh& Mesh = GetMesh(Obj.mMeshId);
+
+					llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
+				}
 			}
 			llrm::EndRenderGraph(DstCmd);
 		}
 		llrm::End(DstCmd);
 	}
 
-	void RenderScene(const Scene& Scene, const SwapChain& Target)
+	void RenderScene(SceneId Id, const SwapChain& Target)
 	{
+		Scene& ToRender = GContext.mScenes[Id];
+
 		int32_t ImageIndex = llrm::BeginFrame(Target.mWnd, Target.mSwap, Target.mSurface);
 
 		if(ImageIndex >= 0)
@@ -244,7 +314,7 @@ namespace Ruby
 			uint32_t Width{}, Height{};
 			llrm::GetFrameBufferSize(Buffer, Width, Height);
 
-			RenderScene(Scene, Cmd, Buffer, Target.mGraph);
+			RenderScene(ToRender, {Width, Height}, Cmd, Buffer, Target.mGraph, Target.mPipeline);
 
 			llrm::EndFrame({ Cmd });
 		}
