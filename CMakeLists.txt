@@ -11,6 +11,7 @@ option(LLRM_BUILD_VULKAN "Selects whether LLRM will build the Vulkan backend" ON
 option(LLRM_VULKAN_VALIDATION "Whether LLRM will enable vulkan validation layers. The Vulkan SDK is required for this." ON)
 option(LLRM_VULKAN_MOLTENVK "Whether LLRM will need extra extensions for MoltenVK usage." OFF)
 option(LLRM_BUILD_TEST "Whether to build the test application" ON)
+option(LLRM_IMGUI "Selects whether to include the optional imgui support" ON)
 option(BUILD_RUBY "Whether to build the ruby rendering engine" ON)
 
 # TODO: make this separate project
@@ -35,7 +36,37 @@ FetchContent_Declare(
 
 add_library (${LLRM_TARGET})
 
+# Create optional imgui target
+if(LLRM_IMGUI)
+    add_library(imgui)
+    target_sources(imgui PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_glfw.cpp
+
+        PUBLIC FILE_SET HEADERS TYPE HEADERS FILES BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+        imgui.h
+        imgui_internal.h
+    )
+
+    if(LLRM_BUILD_VULKAN)
+        target_sources(imgui PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_vulkan.cpp
+        )
+        target_link_libraries(imgui PRIVATE Vulkan::Headers)
+        target_link_libraries(imgui PRIVATE Vulkan::Vulkan)
+    endif()
+    target_link_libraries(imgui PUBLIC glfw)
+
+    target_compile_definitions(${LLRM_TARGET} PUBLIC LLRM_BUILD_IMGUI)
+    target_link_libraries(${LLRM_TARGET} PUBLIC imgui)
+endif()
+
 FetchContent_MakeAvailable(VulkanHeaders vulkan glfw)
+
 
 target_compile_features(${LLRM_TARGET} PUBLIC cxx_std_20)
 target_link_libraries(${LLRM_TARGET} PUBLIC glfw)
@@ -65,7 +96,7 @@ if(LLRM_BUILD_TEST)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE glslang)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE SPIRV)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE ${LLRM_TARGET})
-
+        
     install(TARGETS ${LLRM_TEST_TARGET})
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Shaders DESTINATION .)
 endif()
@@ -76,7 +107,9 @@ endif()
 
 target_sources(${LLRM_TARGET} PRIVATE
     "llrm_vulkan.cpp"
+    "ImGuiSupport.cpp"
 
     PUBLIC FILE_SET HEADERS TYPE HEADERS FILES
     "llrm.h"
+    "ImGuiSupport.h" 
 )

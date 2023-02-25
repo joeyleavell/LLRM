@@ -3,14 +3,13 @@
 #include <functional>
 #include <iostream>
 
-#include "llrm.h"
+#include "llrm_vulkan.h"
 #include <unordered_set>
 #include <vector>
 
 #ifdef LLRM_VULKAN
 
 // LLRM uses glfw for now, move away from this to become independent from the windowing framework.
-#include "vulkan/vulkan.h"
 #include "GLFW/glfw3.h"
 
 // Defined in the windows header
@@ -28,244 +27,6 @@
 #else
 	constexpr bool bUsingMoltenVK = false;
 #endif
-
-// Helper to record stack traces of allocated resources to track down resource that need to be freed
-#ifdef VULKAN_VALIDATION
-#define RECORD_RESOURCE_ALLOC(Res)	AllocatedTraces.insert(std::make_pair(Res, boost::stacktrace::stacktrace()));
-#define REMOVE_RESOURCE_ALLOC(Res)	AllocatedTraces.erase(Res);
-	std::unordered_map<void*, boost::stacktrace::stacktrace> AllocatedTraces;
-#else
-#define RECORD_RESOURCE_ALLOC(Res) // Do nothing
-#define REMOVE_RESOURCE_ALLOC(Res) // Do nothing
-#endif
-
-#define MAX_FRAMES_IN_FLIGHT 3
-
-// Frame in flight
-struct VulkanFrame
-{
-	VkSemaphore ImageAvailableSemaphore;
-	VkSemaphore RenderingFinishedSemaphore;
-	VkFence InFlightFence;
-
-	VulkanFrame(VkSemaphore ImageAvailableSem, VkSemaphore RenderingFinishedSem, VkFence FlightFence)
-	{
-		this->ImageAvailableSemaphore = ImageAvailableSem;
-		this->RenderingFinishedSemaphore = RenderingFinishedSem;
-		this->InFlightFence = FlightFence;
-	}
-};
-
-struct VulkanTexture
-{
-	// This staging buffer is used if the texture can be uploaded to from the CPU
-	VkBuffer StagingBuffer;
-	VkDeviceMemory StagingBufferMemory;
-
-	VkDeviceMemory TextureMemory;
-	VkImage TextureImage;
-
-	VkImageView TextureImageView;
-	VkSampler TextureSampler;
-
-	uint64_t TextureFlags{};
-
-	llrm::AttachmentFormat TextureFormat{};
-	uint32_t Width = 0, Height = 0;
-};
-
-struct VulkanSwapChain
-{
-	VkSwapchainKHR SwapChain;
-	llrm::AttachmentFormat ImageFormat;
-	VkPresentModeKHR PresentMode;
-	VkExtent2D SwapChainExtent;
-
-	std::vector<VulkanTexture> Images;
-
-	int32_t CurrentFrame = 0;
-
-	/**
-	 * Keep track of frames in flight for this swap chain.
-	 */
-	std::vector<VulkanFrame> FramesInFlight;
-
-	std::vector<VkFence> ImageFences;
-
-	// The image index acquired for the current frame
-	uint32_t AcquiredImageIndex;
-
-	bool bInsideFrame = false;
-
-};
-
-struct VulkanSurface
-{
-	VkSurfaceKHR VkSurface;
-};
-
-struct VulkanContext
-{
-	/**
-	 * The global Vulkan instance.
-	 */
-	VkInstance Instance;
-
-	/**
-	 * The physical device selected for all Vulkan operations. MultiGPU operations are currently not supported, so there will only ever be a single physical device.
-	 */
-	VkPhysicalDevice PhysicalDevice;
-
-	/**
-	 * The logical device created for a particular physical device.
-	 */
-	VkDevice Device;
-
-	/**
-	 * The primary pool for allocating command buffers.
-	 */
-	VkCommandPool MainCommandPool;
-
-	/**
-	 * The primary pool for allocating descriptor sets.
-	 */
-	VkDescriptorPool MainDscPool;
-
-	/**
-	 * The queue family index of the graphics queue.
-	 */
-	uint32_t GraphicsQueueFamIndex;
-
-	/**
-	 * The queue family index of the graphics queue.
-	 */
-	uint32_t PresentQueueFamIndex;
-
-	/**
-	 * The primary graphics queue for submitting command buffers.
-	 */
-	VkQueue GraphicsQueue;
-
-	/**
-	 * The queue for presenting rendered images.
-	 */
-	VkQueue PresentQueue;
-
-	// Resources for current frame
-	VulkanSwapChain* CurrentSwapChain{};
-	GLFWwindow* CurrentWindow{};
-	llrm::Surface CurrentSurface{};
-
-	/**
-	 * Extensions that are used by the Vulkan instance.
-	 */
-	std::vector<const char*> InstanceExtensions;
-
-	/**
-	 * Extensions that are used by the Vulkan device.
-	 */
-	std::vector<const char*> DeviceExtensions;
-
-	/**
-	 * Validation layers that are used by the Vulkan application.
-	 */
-	std::vector<const char*> ValidationLayers;
-
-	/**
-	 * The debug messenger for the instance, if validation is enabled.
-	 */
-	VkDebugUtilsMessengerEXT DebugMessenger;
-
-};
-
-struct VulkanShader
-{
-	bool bHasVertexShader;
-	bool bHasFragmentShader;
-	VkShaderModule VertexModule;
-	VkShaderModule FragmentModule;
-};
-
-struct VulkanPipeline
-{
-	VkPipelineLayout PipelineLayout;
-	VkPipeline Pipeline;
-};
-
-struct VulkanRenderGraph
-{
-	VkRenderPass RenderPass;
-};
-
-struct VulkanVertexBuffer
-{
-	VkBuffer DeviceVertexBuffer;
-	VkDeviceMemory DeviceVertexBufferMemory;
-
-	VkBuffer StagingVertexBuffer;
-	VkDeviceMemory StagingVertexBufferMemory;
-
-	VkCommandBuffer VertexStagingCommandBuffer;
-	VkFence VertexStagingCompleteFence;
-};
-
-struct VulkanIndexBuffer
-{
-	VkBuffer DeviceIndexBuffer;
-	VkDeviceMemory DeviceIndexBufferMemory;
-
-	VkBuffer StagingIndexBuffer;
-	VkDeviceMemory StagingIndexBufferMemory;
-
-	VkCommandBuffer IndexStagingCommandBuffer;
-	VkFence IndexStagingCompleteFence;
-};
-
-struct VulkanFrameBuffer
-{
-	uint32_t AttachmentWidth;
-	uint32_t AttachmentHeight;
-
-	std::vector<VulkanTexture*>    AllAttachments;
-
-	VkFramebuffer VulkanFbo;
-
-	// Store some of the initial creation info for re-creating the framebuffers
-	llrm::FramebufferAttachmentDescription              DepthStencilAttachmentDesc;
-	VkRenderPass                                  CreatedFor;
-};
-
-struct VulkanCommandBuffer
-{
-	VulkanSwapChain* CurrentSwapChain{};
-	VulkanFrameBuffer* CurrentFbo{};
-	VkCommandBuffer CmdBuffer;
-	bool bDynamic = false; // If bTargetSwapChain is true, whether this command buffer will be re-recorded every frame (true) or very in-frequently recorded
-	bool bOneTimeUse = false; // Whether this command buffer is intended to only be used once
-	bool bTargetSwapChain = false; // Whether this command buffer targets the swap chain (i.e. references a frame with vkBeginRenderPass)
-
-	VulkanPipeline* BoundPipeline = nullptr;
-};
-
-struct VulkanResourceLayout
-{
-	VkDescriptorSetLayout VkLayout;
-	std::vector<llrm::ConstantBufferDescription> ConstantBuffers;
-	std::vector<llrm::TextureDescription> TextureBindings;
-};
-
-struct ConstantBufferStorage
-{
-	uint32_t Binding;
-	std::vector<VkBuffer> Buffers;
-	std::vector<VkDeviceMemory> Memory;
-};
-
-struct VulkanResourceSet
-{
-	std::vector<ConstantBufferStorage> ConstantBuffers;
-	std::vector<VkDescriptorSet> DescriptorSets;
-};
 
 // //////////////////////////////////////////
 // Vulkan backend helper functions
@@ -866,11 +627,10 @@ namespace llrm
 		delete VkSurface;
 	}
 
-
-	void ForEachCmdBuffer(CommandBuffer Cmd, std::function<void(VkCommandBuffer&, int32_t ImageIndex)> Inner)
+	void VkCmdBuffer(CommandBuffer Cmd, std::function<void(VkCommandBuffer&)> Inner)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Cmd);
-		Inner(VkCmd->CmdBuffer, 0);
+		Inner(VkCmd->CmdBuffer);
 	};
 
 	VkFormat AttachmentFormatToVkFormat(AttachmentFormat Format)
@@ -1088,7 +848,7 @@ namespace llrm
 
 	void Reset(CommandBuffer Buf)
 	{
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			vkResetCommandBuffer(CmdBuffer, 0);
 		});
@@ -1096,7 +856,7 @@ namespace llrm
 
 	void Begin(CommandBuffer Buf)
 	{
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
 
@@ -1206,7 +966,7 @@ namespace llrm
 	{
 		VulkanTexture* VkTexture = static_cast<VulkanTexture*>(Image);
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VkImageAspectFlags Flags = 0;
 			if (IsColorFormat(VkTexture->TextureFormat))
@@ -1222,7 +982,7 @@ namespace llrm
 
 	void End(CommandBuffer Buf)
 	{
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			vkEndCommandBuffer(CmdBuffer);
 		});
@@ -1258,7 +1018,7 @@ namespace llrm
 
 		VkCmd->CurrentFbo = VkFbo;
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VkRenderPassBeginInfo RpBeginInfo{};
 			RpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1284,7 +1044,7 @@ namespace llrm
 		VkCmd->CurrentSwapChain = nullptr;
 		VkCmd->CurrentFbo = nullptr;
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			vkCmdEndRenderPass(CmdBuffer);
 		});
@@ -1298,7 +1058,7 @@ namespace llrm
 		// Descriptor sets need to know about the pipeline layout, so store this here
 		VkCmd->BoundPipeline = VkPipeline;
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			vkCmdBindPipeline(CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipeline->Pipeline);
 		});
@@ -1309,27 +1069,24 @@ namespace llrm
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
 		VulkanResourceSet* VkRes = reinterpret_cast<VulkanResourceSet*>(Resources);
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
-		{
-			VkDescriptorSet& Set = VkRes->DescriptorSets[ImageIndex];
+		uint32_t CurrentFrame = GVulkanContext.CurrentSwapChain->AcquiredImageIndex;
+		VkDescriptorSet& Set = VkRes->DescriptorSets[CurrentFrame];
 
-			vkCmdBindDescriptorSets
-			(
-				CmdBuffer,
-				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				VkCmd->BoundPipeline->PipelineLayout,
-				0, 1, &Set,
-				0, nullptr
-			);
-
-		});
+		vkCmdBindDescriptorSets
+		(
+			VkCmd->CmdBuffer,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			VkCmd->BoundPipeline->PipelineLayout,
+			0, 1, &Set,
+			0, nullptr
+		);
 	}
 
 	void DrawVertexBuffer(CommandBuffer Buf, VertexBuffer Vbo, uint32_t VertexCount)
 	{
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Vbo);
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VkBuffer VertexBuffers[] = {
 				VulkanVbo->DeviceVertexBuffer
@@ -1351,7 +1108,7 @@ namespace llrm
 		VulkanVertexBuffer* VulkanVbo = static_cast<VulkanVertexBuffer*>(Vbo);
 		VulkanIndexBuffer* VulkanIbo = static_cast<VulkanIndexBuffer*>(Ibo);
 
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VkBuffer VertexBuffers[] = {
 				VulkanVbo->DeviceVertexBuffer
@@ -1373,7 +1130,7 @@ namespace llrm
 
 	void SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
 	{
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			VkViewport Viewport;
 			Viewport.x = static_cast<float>(X);
@@ -1389,7 +1146,7 @@ namespace llrm
 
 	void SetScissor(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H)
 	{
-		ForEachCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer, int32_t ImageIndex)
+		VkCmdBuffer(Buf, [&](VkCommandBuffer& CmdBuffer)
 		{
 			uint32_t ScissorY = std::max(GetCurrentViewportHeight(Buf) - (Y + H), static_cast<uint32_t>(0));
 
@@ -2260,7 +2017,7 @@ namespace llrm
 
 		ImmediateSubmitAndWait([&](CommandBuffer Dst)
 		{
-			ForEachCmdBuffer(Dst, [&](VkCommandBuffer Buf, int32_t ImageIndex)
+			VkCmdBuffer(Dst, [&](VkCommandBuffer Buf)
 			{
 				VkBufferImageCopy ImageCopy{};
 				ImageCopy.bufferOffset = 0;
@@ -2820,10 +2577,10 @@ namespace llrm
 		return NewCmdBuf;
 	}
 
-	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo)
+	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo)
 	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo->TargetSwap);
-		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo->Layout);
+		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo.TargetSwap);
+		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo.Layout);
 
 		VulkanResourceSet* Result = new VulkanResourceSet;
 
@@ -2972,32 +2729,32 @@ namespace llrm
 
 			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
-				ForEachCmdBuffer(Buf, [&](VkCommandBuffer Buf, int32_t ImageIndex)
-					{
-						VkBufferImageCopy ImageCopy{};
-						ImageCopy.bufferOffset = 0;
-						ImageCopy.bufferRowLength = 0;
-						ImageCopy.bufferImageHeight = 0;
+				VkCmdBuffer(Buf, [&](VkCommandBuffer Buf)
+				{
+					VkBufferImageCopy ImageCopy{};
+					ImageCopy.bufferOffset = 0;
+					ImageCopy.bufferRowLength = 0;
+					ImageCopy.bufferImageHeight = 0;
 
-						ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-						ImageCopy.imageSubresource.mipLevel = 0;
-						ImageCopy.imageSubresource.baseArrayLayer = 0;
-						ImageCopy.imageSubresource.layerCount = 1;
+					ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+					ImageCopy.imageSubresource.mipLevel = 0;
+					ImageCopy.imageSubresource.baseArrayLayer = 0;
+					ImageCopy.imageSubresource.layerCount = 1;
 
-						ImageCopy.imageOffset = { 0, 0, 0 };
-						ImageCopy.imageExtent = { Width, Height, 1 };
+					ImageCopy.imageOffset = { 0, 0, 0 };
+					ImageCopy.imageExtent = { Width, Height, 1 };
 
-						// Copy buffer data to image
-						vkCmdCopyBufferToImage
-						(
-							Buf,
-							Result->StagingBuffer,
-							Result->TextureImage,
-							VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-							1,
-							&ImageCopy
-						);
-					});
+					// Copy buffer data to image
+					vkCmdCopyBufferToImage
+					(
+						Buf,
+						Result->StagingBuffer,
+						Result->TextureImage,
+						VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+						1,
+						&ImageCopy
+					);
+				});
 			});
 
 			// Transition image to be shader read optimal

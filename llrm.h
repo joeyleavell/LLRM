@@ -338,7 +338,7 @@ namespace llrm
 	VertexBuffer CreateVertexBuffer(uint64_t Size, const void* Data = nullptr);
 	IndexBuffer CreateIndexBuffer(uint64_t Size, const void* Data = nullptr);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
-	ResourceSet CreateResourceSet(ResourceSetCreateInfo* CreateInfo);
+	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo);
 
 	Texture CreateTexture(AttachmentFormat Format, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
 

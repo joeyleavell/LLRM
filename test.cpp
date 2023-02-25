@@ -3,6 +3,8 @@
 #include "llrm.h"
 #include "shadercompile.h"
 #include "GLFW/glfw3.h"
+#include "ImGui.h"
+#include "ImGuiSupport.h"
 
 llrm::ShaderProgram ExampleShader{};
 
@@ -109,6 +111,8 @@ int main()
 		{{{0}}}
 	});
 
+	InitImGui(Window, Context, WndDat.Swap, WndDat.Graph, { false, false,  true });
+
 	// Create pipeline state
 	WndDat.Pipe = llrm::CreatePipeline({
 		ExampleShader,
@@ -158,6 +162,12 @@ int main()
 	{
 		glfwPollEvents();
 
+		BeginImGuiFrame();
+		{
+			ImGui::ShowDemoWindow();
+		}
+		EndImGuiFrame();
+
 		int32_t ImageIndex = llrm::BeginFrame(Window, WndDat.Swap, WndDat.Surface);
 		if(ImageIndex >= 0)
 		{
@@ -177,6 +187,8 @@ int main()
 
 					llrm::BindPipeline(Buf, WndDat.Pipe);
 					llrm::DrawVertexBuffer(Buf, WndDat.Vbo, 3);
+
+					RecordImGuiCmds(Buf);
 				}
 				llrm::EndRenderGraph(Buf);
 			}
