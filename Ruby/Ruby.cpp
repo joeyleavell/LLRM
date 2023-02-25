@@ -170,26 +170,27 @@ namespace Ruby
 		return GContext.mMeshes[MeshId];
 	}
 
-	Object CreateObject(const Mesh& Mesh, glm::vec3 Position)
+	ObjectId CreateObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation)
 	{
 		Object Result;
 		Result.mId = GContext.mNextMeshId;
 		Result.mMeshId = Mesh.mId;
-		Result.Position = Position;
+		Result.mPosition = Position;
+		Result.mRotation = Rotation;
 
 		GContext.mNextMeshId++;
 		GContext.mObjects.emplace(Result.mId, Result);
 
-		return Result;
+		return Result.mId;
 	}
 
-	void DestroyObject(const Object& Object)
+	void DestroyObject(ObjectId Id)
 	{
-		GContext.mObjects.erase(Object.mId);
+		GContext.mObjects.erase(Id);
 		// Todo: Free up Object ID
 	}
 
-	Object& GetObject(uint32_t ObjectId)
+	Object& GetObject(ObjectId ObjectId)
 	{
 		return GContext.mObjects[ObjectId];
 	}
@@ -210,14 +211,14 @@ namespace Ruby
 		GContext.mScenes.erase(Scene);
 	}
 
-	void AddObject(SceneId Scene, const Object& Object)
+	void AddObject(SceneId Scene, ObjectId Object)
 	{
-		GContext.mScenes[Scene].mObjects.insert(Object.mId);
+		GContext.mScenes[Scene].mObjects.insert(Object);
 	}
 
-	void RemoveObject(SceneId Scene, const Object& Object)
+	void RemoveObject(SceneId Scene, ObjectId Object)
 	{
-		GContext.mScenes[Scene].mObjects.erase(Object.mId);
+		GContext.mScenes[Scene].mObjects.erase(Object);
 	}
 
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
@@ -309,7 +310,7 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 
 			// Create transform matrix
 			ModelVertexUniforms ModelUniforms {
-				glm::transpose(BuildTransform(Obj.Position, {0, 0, 0}, {1, 1, 1}))
+				glm::transpose(BuildTransform(Obj.mPosition, Obj.mRotation, {1, 1, 1}))
 			};
 			llrm::UpdateUniformBuffer(DstResources, DstSwap, 1, &ModelUniforms, sizeof(ModelUniforms));
 		}

@@ -11,6 +11,7 @@ namespace Ruby
 {
 
 	typedef uint32_t SceneId;
+	typedef uint32_t ObjectId;
 
 	enum class RenderingAPI
 	{
@@ -41,7 +42,8 @@ namespace Ruby
 	{
 		uint32_t mId;
 		uint32_t mMeshId;
-		glm::vec3 Position;
+		glm::vec3 mPosition;
+		glm::vec3 mRotation;
 	};
 
 	class Scene
@@ -114,15 +116,15 @@ namespace Ruby
 	Mesh& GetMesh(uint32_t MeshId);
 
 	// Object
-	Object CreateObject(const Mesh& Mesh, glm::vec3 Position);
-	void DestroyObject(const Object& Object);
-	Object& GetObject(uint32_t ObjectId);
+	ObjectId CreateObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation);
+	void DestroyObject(ObjectId Id);
+	Object& GetObject(ObjectId ObjectId);
 
 	// Scene
 	SceneId CreateScene();
 	void DestroyScene(SceneId Scene);
-	void AddObject(SceneId Scene, const Object& Object);
-	void RemoveObject(SceneId Scene, const Object& Object);
+	void AddObject(SceneId Scene, ObjectId Object);
+	void RemoveObject(SceneId Scene, ObjectId Object);
 
 	extern RubyContext GContext;
 

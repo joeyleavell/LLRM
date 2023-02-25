@@ -9,15 +9,15 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	// Convert to half size
 	Size /= 2.0f;
 
-	glm::vec3 BackLeftBottom = Pos + glm::vec3{-Size.x, -Size.y, -Size.z};
-	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, Size.y, -Size.z };
-	glm::vec3 BackRightTop = Pos + glm::vec3{ Size.x, Size.y, -Size.z };
-	glm::vec3 BackRightBottom = Pos + glm::vec3{ Size.x, -Size.y, -Size.z };
+	glm::vec3 BackLeftBottom = Pos + glm::vec3{-Size.x, -Size.y, Size.z};
+	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, Size.y, Size.z };
+	glm::vec3 BackRightTop = Pos + glm::vec3{ Size.x, Size.y, Size.z };
+	glm::vec3 BackRightBottom = Pos + glm::vec3{ Size.x, -Size.y, Size.z };
 
-	glm::vec3 FrontLeftBottom = Pos + glm::vec3{ -Size.x, -Size.y, Size.z };
-	glm::vec3 FrontLeftTop = Pos + glm::vec3{ -Size.x, Size.y, Size.z };
-	glm::vec3 FrontRightTop = Pos + glm::vec3{ Size.x, Size.y, Size.z };
-	glm::vec3 FrontRightBottom = Pos + glm::vec3{ Size.x, -Size.y, Size.z };
+	glm::vec3 FrontLeftBottom = Pos + glm::vec3{ -Size.x, -Size.y, -Size.z };
+	glm::vec3 FrontLeftTop = Pos + glm::vec3{ -Size.x, Size.y, -Size.z };
+	glm::vec3 FrontRightTop = Pos + glm::vec3{ Size.x, Size.y, -Size.z };
+	glm::vec3 FrontRightBottom = Pos + glm::vec3{ Size.x, -Size.y, -Size.z };
 
 	// Now triangulate
 	Result.mVerts.emplace_back(BackLeftBottom); // 0
@@ -33,6 +33,26 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	// Back face
 	Result.mIndicies.insert(Result.mIndicies.end(), { 2, 1, 0 });
 	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 3, 2 });
+
+	// Front face
+	Result.mIndicies.insert(Result.mIndicies.end(), { 4, 5, 6});
+	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 7, 4});
+
+	// Left face
+	Result.mIndicies.insert(Result.mIndicies.end(), { 5, 4, 0 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 1, 5 });
+
+	// Right face
+	Result.mIndicies.insert(Result.mIndicies.end(), { 3, 7, 6 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 2, 3 });
+
+	// Bottom face
+	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 4, 7 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 7, 3, 0 });
+
+	// Top face
+	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 5, 1 });
+	Result.mIndicies.insert(Result.mIndicies.end(), { 1, 2, 6 });
 
 	return Result;
 }

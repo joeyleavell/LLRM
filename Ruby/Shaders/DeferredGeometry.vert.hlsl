@@ -21,7 +21,7 @@ struct VSOut
 VSOut main(VSIn Input)
 {
     VSOut Output;
-    Output.Position = ViewProjection * (Transform * float4(Input.Position, 1.0));
+    Output.Position = ViewProjection * Transform * float4(Input.Position, 1.0);
 
     return Output;
 }

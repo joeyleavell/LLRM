@@ -3,6 +3,9 @@
 #include "GLFW/glfw3.h"
 #include "MeshGenerator.h"
 #include "Utill.h"
+#include <chrono>
+
+static Ruby::ObjectId gCube;
 
 Ruby::SceneId CreateScene()
 {
@@ -10,9 +13,9 @@ Ruby::SceneId CreateScene()
 
 	// Create object in front of camera
 	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 0, 0, 0 }, { 10, 10, 10 }));
-	Ruby::Object Obj = Ruby::CreateObject(Floor, { 0, 0, -90.0f });
+	gCube = Ruby::CreateObject(Floor, { 0, 0, -30.0f }, {0, 0, 0});
 
-	Ruby::AddObject(NewScene, Obj);
+	Ruby::AddObject(NewScene, gCube);
 
 	return NewScene;
 }
@@ -38,8 +41,19 @@ int main()
 
 	Ruby::SceneId NewScene = CreateScene();
 
+	auto Last = std::chrono::high_resolution_clock::now();
+
 	while(!glfwWindowShouldClose(Wnd))
 	{
+		auto Now  = std::chrono::high_resolution_clock::now();
+		auto Delta = std::chrono::duration_cast<std::chrono::nanoseconds>(Now - Last);
+		Last = Now;
+		float DeltaSeconds = static_cast<float>(Delta.count() / 1e9) * 50.0f;
+
+		Ruby::GetObject(gCube).mRotation.x += DeltaSeconds;
+		Ruby::GetObject(gCube).mRotation.y += DeltaSeconds;
+		Ruby::GetObject(gCube).mRotation.z += DeltaSeconds;
+
 		glfwPollEvents();
 		int32_t Width{}, Height{};
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
