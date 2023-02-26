@@ -117,7 +117,7 @@ int main()
 	WndDat.Pipe = llrm::CreatePipeline({
 		ExampleShader,
 		WndDat.Graph,
-		ResourceLayout,
+		{ResourceLayout},
 		sizeof(ShaderVertex),
 		{std::make_pair(llrm::VertexAttributeFormat::Float2, offsetof(ShaderVertex, Position))},
 		llrm::PipelineRenderPrimitive::TRIANGLES,

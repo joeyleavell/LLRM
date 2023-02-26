@@ -3,7 +3,7 @@ cbuffer CameraUniforms : register(b0, space0)
     float4x4 ViewProjection;
 }
 
-cbuffer ModelUniforms : register(b1, space0)
+cbuffer ModelUniforms : register(b0, space1)
 {
     float4x4 Transform;
 }

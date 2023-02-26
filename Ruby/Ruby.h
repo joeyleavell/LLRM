@@ -20,6 +20,24 @@ namespace Ruby
 
 	struct SceneResources
 	{
+		llrm::Texture mHDRColor;
+
+		// Full screen quad
+		llrm::VertexBuffer mFullScreenQuadVbo;
+		llrm::IndexBuffer mFullScreenQuadIbo;
+
+		llrm::ResourceSet	 mSceneResources;
+
+		// Deferred geometry stage
+		llrm::Texture		 mDeferredAlbedo;
+		llrm::RenderGraph	 mDeferredGeoRG;
+		llrm::FrameBuffer	 mDeferredGeoFB;
+		llrm::Pipeline		 mDeferredGeoPipe;
+
+		llrm::RenderGraph	 mDeferredShadeRG;
+		llrm::FrameBuffer	 mDeferredShadeFB;
+		llrm::Pipeline		 mDeferredShadePipe;
+		llrm::ResourceSet	 mDeferredShadeRes;
 
 	};
 
@@ -44,6 +62,8 @@ namespace Ruby
 		uint32_t mMeshId;
 		glm::vec3 mPosition;
 		glm::vec3 mRotation;
+
+		llrm::ResourceSet mObjectResources;
 	};
 
 	class Scene
@@ -61,16 +81,17 @@ namespace Ruby
 
 		llrm::Context LLContext{};
 
-		// Pipelines
-		llrm::Pipeline mDeferredGeometryPipe;
-		llrm::RenderGraph mDeferredGeometryRg;
-		llrm::ResourceLayout mDeferredGeometryRl;
-
 		std::unordered_map<uint32_t, SceneResources> mResources;
 
 		std::unordered_map<uint32_t, Mesh> mMeshes;
 		std::unordered_map<uint32_t, Object> mObjects;
 		std::unordered_map<uint32_t, Scene> mScenes;
+
+		// Resource layouts
+		llrm::ResourceLayout mTonemapLayout{};
+		llrm::ResourceLayout mSceneResourceLayout;
+		llrm::ResourceLayout mObjectResourceLayout;
+		llrm::ResourceLayout mDeferredShadeRl;
 
 		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0;
 	};
@@ -80,11 +101,14 @@ namespace Ruby
 		GLFWwindow* mWnd = nullptr;
 		llrm::Surface mSurface;
 		llrm::SwapChain mSwap;
-		llrm::RenderGraph mGraph;
-		llrm::Pipeline mPipeline;
-		llrm::ResourceSet mResources;
 		std::vector<llrm::FrameBuffer> mFrameBuffers;
 		std::vector<llrm::CommandBuffer> mCmdBuffers;
+
+		// Tone mapping (HDR to backbuffer) resources
+		llrm::RenderGraph mTonemapGraph;
+		llrm::Pipeline mTonemapPipeline;
+		llrm::ResourceSet mTonemapResources;
+
 	};
 
 	struct ContextParams

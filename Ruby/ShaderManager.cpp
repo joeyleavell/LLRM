@@ -1,6 +1,7 @@
 #include "ShaderManager.h"
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 
 #include "Utill.h"
 #include "glslang/Include/ResourceLimits.h"
@@ -166,8 +167,9 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
     VertexShader.setStrings(VertSourcesArray, 1);
     VertexShader.setEntryPoint("main");
 
-    if (!VertexShader.parse(&DefaultTBuiltInResource, 0, EProfile::ECoreProfile, false, false, EShMessages::EShMsgVulkanRules))
+    if (!VertexShader.parse(&DefaultTBuiltInResource, 0, EProfile::ECoreProfile, false, false, EShMessages::EShMsgDefault))
     {
+        std::cerr << VertexShader.getInfoLog() << std::endl;
         return false;
     }
 
@@ -182,6 +184,7 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
 
     if (!FragmentShader.parse(&DefaultTBuiltInResource, 0, EProfile::ECoreProfile, false, false, EShMessages::EShMsgVulkanRules))
     {
+        std::cerr << FragmentShader.getInfoLog() << std::endl;
         return false;
     }
 
@@ -192,6 +195,7 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
     // Link program
     if (!ShaderProgram.link(EShMessages::EShMsgVulkanRules))
     {
+        std::cerr << VertexShader.getInfoLog() << std::endl;
         return false;
     }
 

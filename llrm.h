@@ -37,6 +37,7 @@ namespace llrm
 		R32_SINT,
 		R32_FLOAT,
 		R8_UINT,
+		RGBA16F_Float,
 		D24_UNORM_S8_UINT
 	};
 
@@ -167,7 +168,7 @@ namespace llrm
 
 		RenderGraph CompatibleGraph;
 
-		ResourceLayout Layout;
+		std::vector<ResourceLayout> Layouts;
 
 		// Vertex attributes <format, offset>
 		uint32_t VertexBufferStride;
@@ -266,7 +267,6 @@ namespace llrm
 
 	struct ResourceSetCreateInfo
 	{
-		SwapChain TargetSwap;
 		ResourceLayout Layout;
 	};
 
@@ -340,7 +340,7 @@ namespace llrm
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo);
 
-	Texture CreateTexture(AttachmentFormat Format, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
+	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
 
 	// Destroy primitives
 	void DestroyVertexBuffer(VertexBuffer VertexBuffer);
@@ -375,9 +375,9 @@ namespace llrm
 	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height) ;
 
 	// Resource set operations
-	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
+	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
 
-	void UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding) ;
+	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding) ;
 	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);
 	AttachmentFormat GetTextureFormat(Texture Tex);
 
@@ -390,7 +390,7 @@ namespace llrm
 	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, std::vector<ClearValue> ClearValues = {});
 	void EndRenderGraph(CommandBuffer Buf);
 	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject);
-	void BindResources(CommandBuffer Buf, ResourceSet Resources);
+	void BindResources(CommandBuffer Buf, std::vector<ResourceSet> Resources);
 	void DrawVertexBuffer(CommandBuffer Buf, VertexBuffer Vbo, uint32_t VertexCount) ;
 	void DrawVertexBufferIndexed(CommandBuffer Buf, VertexBuffer Vbo, IndexBuffer Ibo, uint32_t IndexCount) ;
 	void SetViewport(CommandBuffer Buf, uint32_t X, uint32_t Y, uint32_t W, uint32_t H);

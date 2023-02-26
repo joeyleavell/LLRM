@@ -5,6 +5,7 @@
 #include "Utill.h"
 #include "ShaderManager.h"
 #include "glm/vec2.hpp"
+#include "Vertex.h"
 
 namespace Ruby
 {
@@ -62,11 +63,28 @@ namespace Ruby
 
 		Ruby::InitShaderCompilation();
 
-		NewContext.mDeferredGeometryRl = llrm::CreateResourceLayout({
+		// Create tonemap resource layout
+		NewContext.mTonemapLayout = llrm::CreateResourceLayout({
+			{},
 			{
-				{0, llrm::ShaderStage::Vertex, sizeof(CameraVertexUniforms), 1},
-				{1, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1},
-		}, {}});
+				{0, llrm::ShaderStage::Fragment, 1} // HDR
+			}
+		});
+
+		NewContext.mSceneResourceLayout = llrm::CreateResourceLayout({
+{
+		{0, llrm::ShaderStage::Vertex, sizeof(CameraVertexUniforms), 1}
+		}, {} });
+
+		NewContext.mObjectResourceLayout = llrm::CreateResourceLayout({
+{
+		{0, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1}
+		}, {} });
+
+		NewContext.mDeferredShadeRl = llrm::CreateResourceLayout({
+{}, {
+			{0, llrm::ShaderStage::Fragment, 1} // Albedo
+		} });
 
 		GContext = NewContext;
 
@@ -110,28 +128,29 @@ namespace Ruby
 			});
 			Info.Passes = { {{0}} };
 
-			Swap.mGraph = llrm::CreateRenderGraph(Info);
+			Swap.mTonemapGraph = llrm::CreateRenderGraph(Info);
 		}
 
-		Swap.mResources = llrm::CreateResourceSet({ Swap.mSwap, GContext.mDeferredGeometryRl });
+		Swap.mTonemapResources = llrm::CreateResourceSet({ GContext.mTonemapLayout});
 
 		// Create final pipeline stage
-		{
-			Swap.mPipeline = llrm::CreatePipeline({
-				LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
-				Swap.mGraph,
-				GContext.mDeferredGeometryRl,
-				sizeof(MeshVertex),
-				{{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}},
-				llrm::PipelineRenderPrimitive::TRIANGLES,
-				{{false}},
-				{false},
-				0
-			});
-		}
+		Swap.mTonemapPipeline = llrm::CreatePipeline({
+			LoadRasterShader("Tonemap", "Tonemap"),
+			Swap.mTonemapGraph,
+			{GContext.mTonemapLayout},
+			sizeof(PosUV),
+			{
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{false},
+			0
+		});
 
 		// Create command buffers and frame buffers
-		UpdateSwapChain(Swap.mSwap, Swap.mGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
+		UpdateSwapChain(Swap.mSwap, Swap.mTonemapGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
 
 		return Swap;
 	}
@@ -177,6 +196,8 @@ namespace Ruby
 		Result.mMeshId = Mesh.mId;
 		Result.mPosition = Position;
 		Result.mRotation = Rotation;
+
+		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
 
 		GContext.mNextMeshId++;
 		GContext.mObjects.emplace(Result.mId, Result);
@@ -224,11 +245,11 @@ namespace Ruby
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
 	{
 		FrameBuffer NewBuffer{};
-		NewBuffer.ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, Width, Height, llrm::TEXTURE_USAGE_RT);
+		NewBuffer.ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, llrm::AttachmentUsage::ColorAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
 
 		if(DepthAttachment)
 		{
-			NewBuffer.DepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, Width, Height, llrm::TEXTURE_USAGE_RT);
+			NewBuffer.DepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
 		}
 
 		// Create render graph
@@ -265,43 +286,131 @@ namespace Ruby
 
 	}
 
-	void InitSceneResources(const Scene& Scene)
+	void CreateResources(SceneResources& Res)
+	{
+		Res.mSceneResources = llrm::CreateResourceSet({ GContext.mSceneResourceLayout});
+		Res.mDeferredShadeRes = llrm::CreateResourceSet({ GContext.mDeferredShadeRl });
+	}
+
+	void CreateDeferredResources(SceneResources& Res, glm::uvec2 Size)
+	{
+		// Create textures
+		Res.mDeferredAlbedo = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+
+		// Create render graph
+		Res.mDeferredGeoRG = llrm::CreateRenderGraph({
+			{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // Albedo
+			{{{0}}}
+		});
+
+		Res.mDeferredShadeRG = llrm::CreateRenderGraph({
+	{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // HDR buffer
+	{{{0}}}
+		});
+
+		// Create pipeline
+		Res.mDeferredGeoPipe= llrm::CreatePipeline({
+			LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
+			Res.mDeferredGeoRG,
+			{GContext.mSceneResourceLayout, GContext.mObjectResourceLayout},
+			sizeof(MeshVertex),
+			{{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{false},
+			0
+		});
+
+		Res.mDeferredShadePipe = llrm::CreatePipeline({
+			LoadRasterShader("DeferredShade", "DeferredShade"),
+			Res.mDeferredShadeRG,
+			{GContext.mDeferredShadeRl},
+			sizeof(PosUV),
+			{
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{false},
+			0
+		});
+
+		// Create frame buffer
+		Res.mDeferredGeoFB = llrm::CreateFrameBuffer({
+			Size.x, Size.y,
+			{Res.mDeferredAlbedo},
+			Res.mDeferredGeoRG
+		});
+
+		Res.mDeferredShadeFB = llrm::CreateFrameBuffer({
+	Size.x, Size.y,
+	{Res.mHDRColor},
+	Res.mDeferredShadeRG
+		});
+	}
+
+	void CreateFullScreenQuad(SceneResources& Res)
+	{
+		PosUV Verts[4] = {
+			{{-1.0f, -1.0f}, {0.0f, 1.0f}},
+			{{-1.0f, 1.0f}, {0.0f, 0.0f}},
+			{{1.0f, 1.0f}, {1.0f, 0.0f}},
+			{{1.0f, -1.0f}, {1.0f, 1.0f}},
+		};
+
+		uint32_t Index[6] = {
+			2, 1, 0,
+			0, 3, 2
+		};
+
+		Res.mFullScreenQuadVbo = llrm::CreateVertexBuffer(sizeof(Verts), Verts);
+		Res.mFullScreenQuadIbo = llrm::CreateIndexBuffer(sizeof(Index), Index);
+	}
+
+	void InitSceneResources(const Scene& Scene, glm::uvec2 Size)
 	{
 		// Create scene resources
 		SceneResources NewResources{};
 
+		// Create color texture
+		NewResources.mHDRColor = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, 800, 600, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+
+		CreateFullScreenQuad(NewResources);
+		CreateResources(NewResources);
+		CreateDeferredResources(NewResources, Size);
+
 		GContext.mResources.emplace(Scene.mId, NewResources);
 	}
 
-	void UpdateCameraUniforms(llrm::ResourceSet DstRes, llrm::SwapChain DstSwap, const Camera& Camera)
+	void UpdateCameraUniforms(llrm::ResourceSet DstRes, const Camera& Camera)
 	{
 		glm::mat4 ViewMatrix = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
 			
 		CameraVertexUniforms CamUniforms{
 glm::transpose(ViewMatrix * Camera.mProjection)
 		};
-		llrm::UpdateUniformBuffer(DstRes, DstSwap, 0, &CamUniforms, sizeof(CamUniforms));
+		llrm::UpdateUniformBuffer(DstRes, 0, &CamUniforms, sizeof(CamUniforms));
 	}
 
 	void RenderScene(const Scene& Scene, 
-		glm::ivec2 ViewportSize, 
+		glm::uvec2 ViewportSize, 
 		const Camera& Camera,
 		const llrm::CommandBuffer& DstCmd, 
 		const llrm::FrameBuffer& DstBuf, 
 		const llrm::RenderGraph& DstGraph, 
 		const llrm::Pipeline& DstPipeline,
-		const llrm::ResourceSet& DstResources,
-		const llrm::SwapChain& DstSwap
+		const llrm::ResourceSet& DstResources
 	)
 	{
 		if(!GContext.mResources.contains(Scene.mId))
 		{
-			InitSceneResources(Scene);
+			InitSceneResources(Scene, ViewportSize);
 		}
 
 		SceneResources& Resources = GContext.mResources[Scene.mId];
 
-		UpdateCameraUniforms(DstResources, DstSwap, Camera);
+		UpdateCameraUniforms(Resources.mSceneResources, Camera);
 
 		// Create model uniforms
 		for (uint32_t Object : Scene.mObjects)
@@ -312,29 +421,62 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			ModelVertexUniforms ModelUniforms {
 				glm::transpose(BuildTransform(Obj.mPosition, Obj.mRotation, {1, 1, 1}))
 			};
-			llrm::UpdateUniformBuffer(DstResources, DstSwap, 1, &ModelUniforms, sizeof(ModelUniforms));
+			llrm::UpdateUniformBuffer(Obj.mObjectResources, 0, &ModelUniforms, sizeof(ModelUniforms));
 		}
+
+		// Update tonemap inputs
+		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColor }, 0);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedo }, 0);
 
 		// Render the scene
 		llrm::Begin(DstCmd);
 		{
+			llrm::TransitionTexture(DstCmd, Resources.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+
+			// Deferred geometry stage
 			std::vector<llrm::ClearValue> ClearValues = { {llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f} };
-			llrm::BeginRenderGraph(DstCmd, DstGraph, DstBuf, ClearValues);
+			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredGeoRG, Resources.mDeferredGeoFB, ClearValues);
 			{
-				// Geometry
 				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
-				llrm::BindPipeline(DstCmd, DstPipeline);
-				llrm::BindResources(DstCmd, DstResources);
+				llrm::BindPipeline(DstCmd, Resources.mDeferredGeoPipe);
 
 				for(uint32_t Object : Scene.mObjects)
 				{
 					Ruby::Object& Obj = GetObject(Object);
 					Ruby::Mesh& Mesh = GetMesh(Obj.mMeshId);
 
+					llrm::BindResources(DstCmd, {Resources.mSceneResources, Obj.mObjectResources});
 					llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
 				}
+			}
+			llrm::EndRenderGraph(DstCmd);
+
+			// Deferred shade stage
+
+			// Update deferred inputs
+			llrm::TransitionTexture(DstCmd, Resources.mHDRColor, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredShadeRG, Resources.mDeferredShadeFB, ClearValues);
+			{
+				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+
+				llrm::BindPipeline(DstCmd, Resources.mDeferredShadePipe);
+				llrm::BindResources(DstCmd, { Resources.mDeferredShadeRes });
+				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
+			}
+			llrm::EndRenderGraph(DstCmd);
+
+			// Tonemap stage
+			llrm::BeginRenderGraph(DstCmd, DstGraph, DstBuf, ClearValues);
+			{
+				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
+
+				llrm::BindPipeline(DstCmd, DstPipeline);
+				llrm::BindResources(DstCmd, { DstResources });
+				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
 			}
 			llrm::EndRenderGraph(DstCmd);
 		}
@@ -361,10 +503,9 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 				Camera, 
 				Cmd, 
 				Buffer, 
-				Target.mGraph, 
-				Target.mPipeline,
-				Target.mResources,
-				Target.mSwap
+				Target.mTonemapGraph, 
+				Target.mTonemapPipeline,
+				Target.mTonemapResources
 			);
 
 			llrm::EndFrame({ Cmd });

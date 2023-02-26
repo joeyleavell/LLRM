@@ -649,6 +649,8 @@ namespace llrm
 			return VK_FORMAT_R32_SFLOAT;
 		case AttachmentFormat::R32_SINT:
 			return VK_FORMAT_R32_SINT;
+		case AttachmentFormat::RGBA16F_Float:
+			return VK_FORMAT_R16G16B16A16_SFLOAT;
 		case AttachmentFormat::R8_UINT:
 			return VK_FORMAT_R8_UINT;
 		case AttachmentFormat::D24_UNORM_S8_UINT:
@@ -1064,20 +1066,25 @@ namespace llrm
 		});
 	}
 
-	void BindResources(CommandBuffer Buf, ResourceSet Resources)
+	void BindResources(CommandBuffer Buf, std::vector<ResourceSet> Resources)
 	{
 		VulkanCommandBuffer* VkCmd = static_cast<VulkanCommandBuffer*>(Buf);
-		VulkanResourceSet* VkRes = reinterpret_cast<VulkanResourceSet*>(Resources);
 
-		uint32_t CurrentFrame = GVulkanContext.CurrentSwapChain->AcquiredImageIndex;
-		VkDescriptorSet& Set = VkRes->DescriptorSets[CurrentFrame];
+		uint32_t CurrentFrame = GVulkanContext.CurrentSwapChain->CurrentFrame;
+
+		std::vector<VkDescriptorSet> BoundSets(Resources.size());
+		for(uint32_t ResourceIndex = 0; ResourceIndex < Resources.size(); ResourceIndex++)
+		{
+			VulkanResourceSet* VkRes = reinterpret_cast<VulkanResourceSet*>(Resources[ResourceIndex]);
+			BoundSets[ResourceIndex] = VkRes->DescriptorSets[CurrentFrame];
+		}
 
 		vkCmdBindDescriptorSets
 		(
 			VkCmd->CmdBuffer,
 			VK_PIPELINE_BIND_POINT_GRAPHICS,
 			VkCmd->BoundPipeline->PipelineLayout,
-			0, 1, &Set,
+			0, BoundSets.size(), BoundSets.data(),
 			0, nullptr
 		);
 	}
@@ -1745,9 +1752,9 @@ namespace llrm
 		Height = VkFbo->AttachmentHeight;
 	}
 
-	void UpdateUniformBuffer(ResourceSet Resources, SwapChain Target, uint32_t BufferIndex, void* Data, uint64_t DataSize)
+	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize)
 	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
+		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
 
 		if (!VkSwap->bInsideFrame)
@@ -1756,7 +1763,7 @@ namespace llrm
 			return;
 		}
 
-		VkDeviceMemory& Mem = VkRes->ConstantBuffers[BufferIndex].Memory[VkSwap->AcquiredImageIndex];
+		VkDeviceMemory& Mem = VkRes->ConstantBuffers[BufferIndex].Memory[VkSwap->CurrentFrame];
 
 		// Data is guaranteed available since this frame is guaranteed to have previous operations complete by cpu fence in BeginFrame
 		void* MappedData;
@@ -1790,16 +1797,16 @@ namespace llrm
 	}
 
 	// TODO: Reuse code among UpdateTextureResource and UpdateAttachmentResource
-	void UpdateTextureResource(ResourceSet Resources, SwapChain Target, Texture* Images, uint32_t ImageCount, uint32_t Binding)
+	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding)
 	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Target);
+		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
 
-		VkWriteDescriptorSet* Writes = new VkWriteDescriptorSet[ImageCount];
-		VkDescriptorImageInfo* ImageInfos = new VkDescriptorImageInfo[ImageCount];
+		VkWriteDescriptorSet* Writes = new VkWriteDescriptorSet[Images.size()];
+		VkDescriptorImageInfo* ImageInfos = new VkDescriptorImageInfo[Images.size()];
 		uint32_t CurrentImage = VkSwap->AcquiredImageIndex;
 
-		for (uint32_t ArrayImage = 0; ArrayImage < ImageCount; ArrayImage++)
+		for (uint32_t ArrayImage = 0; ArrayImage < Images.size(); ArrayImage++)
 		{
 			VulkanTexture* VkTex = static_cast<VulkanTexture*>(Images[ArrayImage]);
 
@@ -1823,7 +1830,7 @@ namespace llrm
 			ImageWrite.pTexelBufferView = nullptr;
 		}
 
-		vkUpdateDescriptorSets(GVulkanContext.Device, ImageCount, Writes, 0, nullptr);
+		vkUpdateDescriptorSets(GVulkanContext.Device, Images.size(), Writes, 0, nullptr);
 
 		delete[] Writes;
 		delete[] ImageInfos;
@@ -2368,12 +2375,14 @@ namespace llrm
 		DynamicState.pDynamicStates = DynamicStates;
 
 		// Create pipeline layout
-		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo.Layout);
+		std::vector<VkDescriptorSetLayout> VkLayouts;
+		for (const ResourceLayout& Layout : CreateInfo.Layouts)
+			VkLayouts.push_back(static_cast<VulkanResourceLayout*>(Layout)->VkLayout);
 
 		VkPipelineLayoutCreateInfo PipelineLayoutInfo{};
 		PipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		PipelineLayoutInfo.setLayoutCount = CreateInfo.Layout ? 1 : 0;
-		PipelineLayoutInfo.pSetLayouts = &VkLayout->VkLayout;
+		PipelineLayoutInfo.setLayoutCount = VkLayouts.size();
+		PipelineLayoutInfo.pSetLayouts = VkLayouts.data();
 		PipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 		PipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
@@ -2579,12 +2588,9 @@ namespace llrm
 
 	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo)
 	{
-		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(CreateInfo.TargetSwap);
 		VulkanResourceLayout* VkLayout = static_cast<VulkanResourceLayout*>(CreateInfo.Layout);
 
 		VulkanResourceSet* Result = new VulkanResourceSet;
-
-		uint32_t ImageCount = VkSwap->Images.size();
 
 		// Allocate buffers
 		for (const auto& ConstBuf : VkLayout->ConstantBuffers)
@@ -2592,7 +2598,7 @@ namespace llrm
 			ConstantBufferStorage BufStorage;
 			BufStorage.Binding = ConstBuf.Binding;
 
-			for (uint32_t Image = 0; Image < ImageCount; Image++)
+			for (uint32_t Image = 0; Image < MAX_FRAMES_IN_FLIGHT; Image++)
 			{
 				VkBuffer NewBuffer;
 				VkDeviceMemory NewMemory;
@@ -2613,7 +2619,7 @@ namespace llrm
 			Result->ConstantBuffers.push_back(BufStorage);
 		}
 
-		for (uint32_t Image = 0; Image < ImageCount; Image++)
+		for (uint32_t Image = 0; Image < MAX_FRAMES_IN_FLIGHT; Image++)
 		{
 			// Allocate descriptor sets
 			VkDescriptorSetAllocateInfo SetAllocInfo{};
@@ -2637,7 +2643,7 @@ namespace llrm
 		return Result;
 	}
 
-	Texture CreateTexture(AttachmentFormat Format, uint32_t Width, uint32_t Height, uint64_t Flags, uint64_t ImageSize, void* Data)
+	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t Flags, uint64_t ImageSize, void* Data)
 	{
 		VulkanTexture* Result = new VulkanTexture;
 
@@ -2760,18 +2766,15 @@ namespace llrm
 			// Transition image to be shader read optimal
 			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
-				TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, AttachmentUsage::ShaderRead);
+				TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, InitialUsage);
 			});
 		}
-		else if(Flags & TEXTURE_USAGE_RT) // Can't be an RT and a CPU write at the same time
+		else
 		{
 			// Transition image to be an attachment
 			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
-				if(IsColorFormat(Format))
-					TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::ColorAttachment);
-				else
-					TransitionTexture(Buf, Result, AttachmentUsage::Undefined, AttachmentUsage::DepthStencilAttachment);
+				TransitionTexture(Buf, Result, AttachmentUsage::Undefined, InitialUsage);
 			});
 		}
 
