@@ -2742,7 +2742,7 @@ namespace llrm
 					ImageCopy.bufferRowLength = 0;
 					ImageCopy.bufferImageHeight = 0;
 
-					ImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+					ImageCopy.imageSubresource.aspectMask = IsColorFormat(Format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
 					ImageCopy.imageSubresource.mipLevel = 0;
 					ImageCopy.imageSubresource.baseArrayLayer = 0;
 					ImageCopy.imageSubresource.layerCount = 1;
@@ -2784,7 +2784,7 @@ namespace llrm
 		ViewInfo.image = Result->TextureImage;
 		ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		ViewInfo.format = AttachmentFormatToVkFormat(Format);
-		ViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		ViewInfo.subresourceRange.aspectMask = IsColorFormat(Format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
 		ViewInfo.subresourceRange.baseMipLevel = 0;
 		ViewInfo.subresourceRange.levelCount = 1;
 		ViewInfo.subresourceRange.baseArrayLayer = 0;

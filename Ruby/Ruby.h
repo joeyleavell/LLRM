@@ -21,6 +21,7 @@ namespace Ruby
 	struct SceneResources
 	{
 		llrm::Texture mHDRColor;
+		llrm::Texture mDepth;
 
 		// Full screen quad
 		llrm::VertexBuffer mFullScreenQuadVbo;

@@ -299,8 +299,11 @@ namespace Ruby
 
 		// Create render graph
 		Res.mDeferredGeoRG = llrm::CreateRenderGraph({
-			{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // Albedo
-			{{{0}}}
+			{
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Albedo
+				{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentFormat::D24_UNORM_S8_UINT} // Depth
+			}, 
+			{{{0, 1}}}
 		});
 
 		Res.mDeferredShadeRG = llrm::CreateRenderGraph({
@@ -317,7 +320,7 @@ namespace Ruby
 			{{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}},
 			llrm::PipelineRenderPrimitive::TRIANGLES,
 			{{false}},
-			{false},
+			{true},
 			0
 		});
 
@@ -339,7 +342,7 @@ namespace Ruby
 		// Create frame buffer
 		Res.mDeferredGeoFB = llrm::CreateFrameBuffer({
 			Size.x, Size.y,
-			{Res.mDeferredAlbedo},
+			{Res.mDeferredAlbedo, Res.mDepth},
 			Res.mDeferredGeoRG
 		});
 
@@ -374,7 +377,10 @@ namespace Ruby
 		SceneResources NewResources{};
 
 		// Create color texture
-		NewResources.mHDRColor = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, 800, 600, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		NewResources.mHDRColor = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+
+		// Create depth buffer
+		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT);
 
 		CreateFullScreenQuad(NewResources);
 		CreateResources(NewResources);
@@ -434,7 +440,10 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			llrm::TransitionTexture(DstCmd, Resources.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 
 			// Deferred geometry stage
-			std::vector<llrm::ClearValue> ClearValues = { {llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f} };
+			std::vector<llrm::ClearValue> ClearValues = {
+				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f},
+				{llrm::ClearType::Float, 1.0f}
+			};
 			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredGeoRG, Resources.mDeferredGeoFB, ClearValues);
 			{
 				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
@@ -456,6 +465,9 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			// Deferred shade stage
 
 			// Update deferred inputs
+			ClearValues = {
+				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f},
+			};
 			llrm::TransitionTexture(DstCmd, Resources.mHDRColor, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredShadeRG, Resources.mDeferredShadeFB, ClearValues);
 			{
