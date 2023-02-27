@@ -13,17 +13,17 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	{
 		uint32_t Base = Result.mVerts.size();
 
-		Result.mVerts.insert(Result.mVerts.begin(), Verts.begin(), Verts.end());
+		Result.mVerts.insert(Result.mVerts.end(), Verts.begin(), Verts.end());
 
 		if(Reverse)
 		{
-			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 0, Base + 1, Base + 2 });
-			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 2, Base + 3, Base + 0});
+			Result.mIndicies.insert(Result.mIndicies.end(), { Base + 0, Base + 1, Base + 2 });
+			Result.mIndicies.insert(Result.mIndicies.end(), { Base + 2, Base + 3, Base + 0});
 		}
 		else
 		{
-			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 2, Base + 1, Base + 0 });
-			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 0, Base + 3, Base + 2 });
+			Result.mIndicies.insert(Result.mIndicies.end(), { Base + 2, Base + 1, Base + 0 });
+			Result.mIndicies.insert(Result.mIndicies.end(), { Base + 0, Base + 3, Base + 2 });
 		}
 	};
 
@@ -68,7 +68,7 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 			{glm::vec3{Size.x, Size.y, -Size.z}, Normal},
 			{glm::vec3{Size.x, Size.y, Size.z}, Normal},
 			{glm::vec3{Size.x, -Size.y, Size.z}, Normal},
-			});
+			}, true);
 	}
 
 	// Bottom face
@@ -79,7 +79,7 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 			{glm::vec3{-Size.x, -Size.y, -Size.z}, Normal},
 			{glm::vec3{Size.x, -Size.y, -Size.z}, Normal},
 			{glm::vec3{Size.x, -Size.y, Size.z}, Normal},
-			});
+			}, true);
 	}
 
 	// Top face
