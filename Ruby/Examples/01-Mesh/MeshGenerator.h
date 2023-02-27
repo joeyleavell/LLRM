@@ -14,52 +14,84 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 		uint32_t Base = Result.mVerts.size();
 
 		Result.mVerts.insert(Result.mVerts.begin(), Verts.begin(), Verts.end());
+
+		if(Reverse)
+		{
+			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 0, Base + 1, Base + 2 });
+			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 2, Base + 3, Base + 0});
+		}
+		else
+		{
+			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 2, Base + 1, Base + 0 });
+			Result.mIndicies.insert(Result.mIndicies.begin(), { Base + 0, Base + 3, Base + 2 });
+		}
 	};
 
-	glm::vec3 BackLeftBottom = Pos + glm::vec3{-Size.x, -Size.y, Size.z};
-	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, Size.y, Size.z };
-	glm::vec3 BackRightTop = Pos + glm::vec3{ Size.x, Size.y, Size.z };
-	glm::vec3 BackRightBottom = Pos + glm::vec3{ Size.x, -Size.y, Size.z };
-
-	glm::vec3 FrontLeftBottom = Pos + glm::vec3{ -Size.x, -Size.y, -Size.z };
-	glm::vec3 FrontLeftTop = Pos + glm::vec3{ -Size.x, Size.y, -Size.z };
-	glm::vec3 FrontRightTop = Pos + glm::vec3{ Size.x, Size.y, -Size.z };
-	glm::vec3 FrontRightBottom = Pos + glm::vec3{ Size.x, -Size.y, -Size.z };
-
-	// Now triangulate
-	Result.mVerts.emplace_back(BackLeftBottom); // 0
-	Result.mVerts.emplace_back(BackLeftTop); // 1
-	Result.mVerts.emplace_back(BackRightTop); // 2
-	Result.mVerts.emplace_back(BackRightBottom); // 3
-
-	Result.mVerts.emplace_back(FrontLeftBottom); // 4
-	Result.mVerts.emplace_back(FrontLeftTop); // 5
-	Result.mVerts.emplace_back(FrontRightTop); // 6
-	Result.mVerts.emplace_back(FrontRightBottom); // 7
-
 	// Back face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 2, 1, 0 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 3, 2 });
+	{
+		glm::vec3 Normal = { 0.0f, 0.0f, 1.0f };
+		AddQuad({
+			{glm::vec3{-Size.x, -Size.y, Size.z}, Normal},
+			{glm::vec3{-Size.x, Size.y, Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, Size.z}, Normal},
+			{glm::vec3{Size.x, -Size.y, Size.z}, Normal},
+		});
+	}
 
 	// Front face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 4, 5, 6});
-	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 7, 4});
+	{
+		glm::vec3 Normal = { 0.0f, 0.0f, -1.0f };
+		AddQuad({
+			{glm::vec3{-Size.x, -Size.y, -Size.z}, Normal},
+			{glm::vec3{-Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, -Size.y, -Size.z}, Normal},
+		}, true);
+	}
 
 	// Left face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 5, 4, 0 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 1, 5 });
+	{
+		glm::vec3 Normal = { -1.0f, 0.0f, 0.0f };
+		AddQuad({
+			{glm::vec3{-Size.x, -Size.y, -Size.z}, Normal},
+			{glm::vec3{-Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{-Size.x, Size.y, Size.z}, Normal},
+			{glm::vec3{-Size.x, -Size.y, Size.z}, Normal},
+		});
+	}
 
 	// Right face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 3, 7, 6 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 2, 3 });
+	{
+		glm::vec3 Normal = { 1.0f, 0.0f, 0.0f };
+		AddQuad({
+			{glm::vec3{Size.x, -Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, Size.z}, Normal},
+			{glm::vec3{Size.x, -Size.y, Size.z}, Normal},
+			});
+	}
 
 	// Bottom face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 0, 4, 7 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 7, 3, 0 });
+	{
+		glm::vec3 Normal = { 0.0f, -1.0f, 0.0f };
+		AddQuad({
+			{glm::vec3{-Size.x, -Size.y, Size.z}, Normal},
+			{glm::vec3{-Size.x, -Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, -Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, -Size.y, Size.z}, Normal},
+			});
+	}
 
 	// Top face
-	Result.mIndicies.insert(Result.mIndicies.end(), { 6, 5, 1 });
-	Result.mIndicies.insert(Result.mIndicies.end(), { 1, 2, 6 });
-
+	{
+		glm::vec3 Normal = { 0.0f, 1.0f, 0.0f };
+		AddQuad({
+			{glm::vec3{-Size.x, Size.y, Size.z}, Normal},
+			{glm::vec3{-Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, -Size.z}, Normal},
+			{glm::vec3{Size.x, Size.y, Size.z}, Normal},
+			});
+	}
+	
 	return Result;
 }

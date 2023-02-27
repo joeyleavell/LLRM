@@ -125,7 +125,6 @@ namespace Ruby
 	{
 		glm::vec3 mPosition;
 		glm::vec3 mNormal;
-
 	};
 
 	struct Tesselation

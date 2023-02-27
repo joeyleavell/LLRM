@@ -322,8 +322,8 @@ namespace Ruby
 			{GContext.mSceneResourceLayout, GContext.mObjectResourceLayout},
 			sizeof(MeshVertex),
 			{
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, m)}
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
 			},
 			llrm::PipelineRenderPrimitive::TRIANGLES,
 			{{false}, {false}, {false}},
