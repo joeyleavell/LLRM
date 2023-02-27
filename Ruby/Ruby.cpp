@@ -67,7 +67,10 @@ namespace Ruby
 		NewContext.mTonemapLayout = llrm::CreateResourceLayout({
 			{},
 			{
-				{0, llrm::ShaderStage::Fragment, 1} // HDR
+				{1, llrm::ShaderStage::Fragment, 1} // HDR
+			},
+			{
+				{0, llrm::ShaderStage::Fragment, 1} // Sampler
 			}
 		});
 
@@ -83,8 +86,14 @@ namespace Ruby
 
 		NewContext.mDeferredShadeRl = llrm::CreateResourceLayout({
 {}, {
+			{1, llrm::ShaderStage::Fragment, 1}, // Albedo
+			{2, llrm::ShaderStage::Fragment, 1}, // Position
+			{3, llrm::ShaderStage::Fragment, 1}  // Normal
+		},
+		{
 			{0, llrm::ShaderStage::Fragment, 1} // Albedo
-		} });
+		}
+		});
 
 		GContext = NewContext;
 
@@ -360,6 +369,11 @@ namespace Ruby
 		});
 	}
 
+	void CreateSamplers(SceneResources& Res)
+	{
+		Res.mNearestSampler = llrm::CreateSampler({ llrm::FilterType::NEAREST, llrm::FilterType::NEAREST });
+	}
+
 	void CreateFullScreenQuad(SceneResources& Res)
 	{
 		PosUV Verts[4] = {
@@ -389,6 +403,7 @@ namespace Ruby
 		// Create depth buffer
 		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT);
 
+		CreateSamplers(NewResources);
 		CreateFullScreenQuad(NewResources);
 		CreateResources(NewResources);
 		CreateDeferredResources(NewResources, Size);
@@ -438,8 +453,14 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 		}
 
 		// Update tonemap inputs
-		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColor }, 0);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedo }, 0);
+		llrm::UpdateSamplerResource(DstResources, Resources.mNearestSampler, 0);
+		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColor }, 1);
+
+		// Update deferred shade inputs
+		llrm::UpdateSamplerResource(Resources.mDeferredShadeRes, Resources.mNearestSampler, 0);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedo }, 1);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredPosition }, 2);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredNormal }, 3);
 
 		// Render the scene
 		llrm::Begin(DstCmd);

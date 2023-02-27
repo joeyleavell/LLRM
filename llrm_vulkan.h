@@ -31,6 +31,11 @@ struct VulkanFrame
 	}
 };
 
+struct VulkanSampler
+{
+	VkSampler Sampler;
+};
+
 struct VulkanTexture
 {
 	// This staging buffer is used if the texture can be uploaded to from the CPU
@@ -41,7 +46,6 @@ struct VulkanTexture
 	VkImage TextureImage;
 
 	VkImageView TextureImageView;
-	VkSampler TextureSampler;
 
 	uint64_t TextureFlags{};
 
@@ -226,7 +230,8 @@ struct VulkanResourceLayout
 {
 	VkDescriptorSetLayout VkLayout;
 	std::vector<llrm::ConstantBufferDescription> ConstantBuffers;
-	std::vector<llrm::TextureDescription> TextureBindings;
+	std::vector<llrm::TextureSamplerDescription> TextureBindings;
+	std::vector<llrm::TextureSamplerDescription> SamplerBindings;
 };
 
 struct ConstantBufferStorage

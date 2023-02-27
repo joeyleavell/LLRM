@@ -26,6 +26,7 @@ namespace llrm
 	typedef void* ResourceLayout;
 	typedef void* ResourceSet;
 	typedef void* Texture;
+	typedef void* Sampler;
 
 	const uint32_t MAX_OUTPUT_COLORS = 8;
 
@@ -98,7 +99,8 @@ namespace llrm
 		uint32_t Count = 1;
 	};
 
-	struct TextureDescription
+	// Used to describe texture and sampler resources
+	struct TextureSamplerDescription
 	{
 		uint32_t Binding = 0;
 		llrm::ShaderStage StageUsedAt = llrm::ShaderStage::Fragment;
@@ -108,7 +110,8 @@ namespace llrm
 	struct ResourceLayoutCreateInfo
 	{
 		std::vector<ConstantBufferDescription> ConstantBuffers{};
-		std::vector<TextureDescription> Textures{};
+		std::vector<TextureSamplerDescription> Textures{};
+		std::vector<TextureSamplerDescription> Samplers{};
 	};
 
 	enum class BlendOperation
@@ -155,6 +158,12 @@ namespace llrm
 	{
 		NEAREST,
 		LINEAR
+	};
+
+	enum class WrapMode
+	{
+		Repeat,
+		Clamp
 	};
 
 	struct PipelineDepthStencilSettings
@@ -270,6 +279,15 @@ namespace llrm
 		ResourceLayout Layout;
 	};
 
+	struct SamplerCreateInfo
+	{
+		FilterType MinFilter;
+		FilterType MagFilter;
+		WrapMode   UWrapMode = WrapMode::Clamp;
+		WrapMode   VWrapMode = WrapMode::Clamp;
+		WrapMode   WWrapMode = WrapMode::Clamp;
+	};
+
 	inline bool IsDepthFormat(AttachmentFormat Format)
 	{
 		return Format == AttachmentFormat::D24_UNORM_S8_UINT;
@@ -339,8 +357,8 @@ namespace llrm
 	IndexBuffer CreateIndexBuffer(uint64_t Size, const void* Data = nullptr);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo);
-
 	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
+	Sampler CreateSampler(const SamplerCreateInfo& CreateInfo);
 
 	// Destroy primitives
 	void DestroyVertexBuffer(VertexBuffer VertexBuffer);
@@ -350,6 +368,7 @@ namespace llrm
 	void DestroyResourceLayout(ResourceLayout Layout);
 	void DestroyResourceSet(ResourceSet Resources);
 	void DestroyTexture(Texture Image);
+	void DestroySampler(Sampler Samp);
 	void DestroyFrameBuffer(FrameBuffer FrameBuffer);
 	void DestroyProgram(ShaderProgram Shader);
 	void DestroySwapChain(SwapChain Swap);
@@ -376,8 +395,9 @@ namespace llrm
 
 	// Resource set operations
 	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
-
 	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding) ;
+	void UpdateSamplerResource(ResourceSet Resources, Sampler Samp, uint32_t Binding);
+
 	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);
 	AttachmentFormat GetTextureFormat(Texture Tex);
 

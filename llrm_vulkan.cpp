@@ -740,6 +740,18 @@ namespace llrm
 		return VK_FILTER_LINEAR;
 	}
 
+	VkSamplerAddressMode WrapModeToVkAddressMode(const WrapMode& Mode)
+	{
+		switch (Mode)
+		{
+		case WrapMode::Clamp:
+			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		case WrapMode::Repeat:
+			return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		}
+		return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	}
+
 	VkBlendFactor BlendFactorToVkFactor(BlendFactor Factor)
 	{
 		switch (Factor)
@@ -1796,7 +1808,6 @@ namespace llrm
 		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &BufferWrite, 0, nullptr);
 	}
 
-	// TODO: Reuse code among UpdateTextureResource and UpdateAttachmentResource
 	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding)
 	{
 		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
@@ -1816,14 +1827,14 @@ namespace llrm
 			ImageInfo = {};
 			ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			ImageInfo.imageView = VkTex->TextureImageView;
-			ImageInfo.sampler = VkTex->TextureSampler;
+			ImageInfo.sampler = nullptr;
 
 			ImageWrite = {};
 			ImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			ImageWrite.dstSet = VkRes->DescriptorSets[CurrentImage];
 			ImageWrite.dstBinding = Binding;
 			ImageWrite.dstArrayElement = ArrayImage;
-			ImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			ImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 			ImageWrite.descriptorCount = 1;
 			ImageWrite.pBufferInfo = nullptr;
 			ImageWrite.pImageInfo = &ImageInfo;
@@ -1836,12 +1847,38 @@ namespace llrm
 		delete[] ImageInfos;
 	}
 
+	void UpdateSamplerResource(ResourceSet Resources, Sampler Samp, uint32_t Binding)
+	{
+		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
+		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
+		VulkanSampler* VkSamp = static_cast<VulkanSampler*>(Samp);
+
+		uint32_t CurrentImage = VkSwap->AcquiredImageIndex;
+
+		VkDescriptorImageInfo ImageInfo{};
+		ImageInfo.imageView = nullptr;
+		ImageInfo.sampler = VkSamp->Sampler;
+
+		VkWriteDescriptorSet ImageWrite{};
+		ImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		ImageWrite.dstSet = VkRes->DescriptorSets[CurrentImage];
+		ImageWrite.dstBinding = Binding;
+		ImageWrite.dstArrayElement = 0;
+		ImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		ImageWrite.descriptorCount = 1;
+		ImageWrite.pBufferInfo = nullptr;
+		ImageWrite.pImageInfo = &ImageInfo;
+		ImageWrite.pTexelBufferView = nullptr;
+
+		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &ImageWrite, 0, nullptr);
+	}
+
 	void SynchronizedUploadBufferData(VkFence StagingFence, uint64_t Size, const void* Data,
-		VkCommandBuffer StagingCommandBuffer,
-		VkDeviceMemory StagingMemory, VkBuffer StagingBuffer,
-		VkBuffer DeviceBuffer,
-		VkAccessFlagBits SrcAccess, VkAccessFlagBits DstAccess,
-		VkPipelineStageFlagBits SrcStage, VkPipelineStageFlagBits DstStage)
+	                                  VkCommandBuffer StagingCommandBuffer,
+	                                  VkDeviceMemory StagingMemory, VkBuffer StagingBuffer,
+	                                  VkBuffer DeviceBuffer,
+	                                  VkAccessFlagBits SrcAccess, VkAccessFlagBits DstAccess,
+	                                  VkPipelineStageFlagBits SrcStage, VkPipelineStageFlagBits DstStage)
 	{
 
 		// Wait for previous staging transfer operation to complete
@@ -2112,7 +2149,7 @@ namespace llrm
 			VkDescriptorSetLayoutBinding LayoutBinding{};
 			LayoutBinding.binding = CreateInfo.Textures[TexBindingIndex].Binding;
 			LayoutBinding.descriptorCount = CreateInfo.Textures[TexBindingIndex].Count;
-			LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 			LayoutBinding.pImmutableSamplers = nullptr;
 			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo.Textures[TexBindingIndex].StageUsedAt);
 
@@ -2120,6 +2157,20 @@ namespace llrm
 
 			// Persist constant buffers
 			Result->TextureBindings.push_back(CreateInfo.Textures[TexBindingIndex]);
+		}
+
+		for (uint32_t SampBindingIndex = 0; SampBindingIndex < CreateInfo.Samplers.size(); SampBindingIndex++)
+		{
+			VkDescriptorSetLayoutBinding LayoutBinding{};
+			LayoutBinding.binding = CreateInfo.Samplers[SampBindingIndex].Binding;
+			LayoutBinding.descriptorCount = CreateInfo.Samplers[SampBindingIndex].Count;
+			LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+			LayoutBinding.pImmutableSamplers = nullptr;
+			LayoutBinding.stageFlags = ShaderStageToVkStage(CreateInfo.Samplers[SampBindingIndex].StageUsedAt);
+
+			LayoutBindings.push_back(LayoutBinding);
+
+			Result->SamplerBindings.push_back(CreateInfo.Samplers[SampBindingIndex]);
 		}
 
 		VkDescriptorSetLayoutCreateInfo LayoutCreateInfo{};
@@ -2796,35 +2847,38 @@ namespace llrm
 			return nullptr;
 		}
 
-		if (Flags & TEXTURE_USAGE_SAMPLE) // Can't be an RT and a CPU write at the same time
-		{
-
-			VkSamplerCreateInfo SamplerInfo{};
-			SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-			SamplerInfo.magFilter = VK_FILTER_NEAREST; // TODO: make an option
-			SamplerInfo.minFilter = VK_FILTER_NEAREST; // TODO: make an option
-			SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			SamplerInfo.anisotropyEnable = VK_FALSE; // todo: enable anisotropy
-			SamplerInfo.maxAnisotropy = 0;
-			SamplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-			SamplerInfo.unnormalizedCoordinates = VK_FALSE;
-			SamplerInfo.compareEnable = VK_FALSE;
-			SamplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-			SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-			SamplerInfo.mipLodBias = 0.0f;
-			SamplerInfo.minLod = 0.0f;
-			SamplerInfo.maxLod = 0.0f;
-
-			if (vkCreateSampler(GVulkanContext.Device, &SamplerInfo, nullptr, &Result->TextureSampler) != VK_SUCCESS)
-			{
-				//GLog->critical("Failed to create vulkan sampler");
-				return nullptr;
-			}
-		}
-
 		RECORD_RESOURCE_ALLOC(Result)
+
+		return Result;
+	}
+
+	Sampler CreateSampler(const SamplerCreateInfo& CreateInfo)
+	{
+		VulkanSampler* Result = new VulkanSampler;
+
+		VkSamplerCreateInfo SamplerInfo{};
+		SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		SamplerInfo.magFilter = FilterToVkFilter(CreateInfo.MagFilter);
+		SamplerInfo.minFilter = FilterToVkFilter(CreateInfo.MinFilter);
+		SamplerInfo.addressModeU = WrapModeToVkAddressMode(CreateInfo.UWrapMode);
+		SamplerInfo.addressModeV = WrapModeToVkAddressMode(CreateInfo.VWrapMode);
+		SamplerInfo.addressModeW = WrapModeToVkAddressMode(CreateInfo.WWrapMode);
+		SamplerInfo.anisotropyEnable = VK_FALSE; // todo: enable anisotropy
+		SamplerInfo.maxAnisotropy = 0;
+		SamplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+		SamplerInfo.unnormalizedCoordinates = VK_FALSE;
+		SamplerInfo.compareEnable = VK_FALSE;
+		SamplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+		SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		SamplerInfo.mipLodBias = 0.0f;
+		SamplerInfo.minLod = 0.0f;
+		SamplerInfo.maxLod = 0.0f;
+
+		if (vkCreateSampler(GVulkanContext.Device, &SamplerInfo, nullptr, &Result->Sampler) != VK_SUCCESS)
+		{
+			//GLog->critical("Failed to create vulkan sampler");
+			return nullptr;
+		}
 
 		return Result;
 	}
@@ -3071,16 +3125,17 @@ namespace llrm
 			vkDestroyBuffer(GVulkanContext.Device, VkTex->StagingBuffer, nullptr);
 		}
 
-		if (VkTex->TextureFlags & TEXTURE_USAGE_SAMPLE)
-		{
-			vkDestroySampler(GVulkanContext.Device, VkTex->TextureSampler, nullptr);
-		}
-
 		REMOVE_RESOURCE_ALLOC(VkTex)
 
 		delete VkTex;
 	}
 
+	void DestroySampler(Sampler Samp)
+	{
+		VulkanSampler* VkSamp = static_cast<VulkanSampler*>(Samp);
+
+		vkDestroySampler(GVulkanContext.Device, VkSamp->Sampler, nullptr);
+	}
 }
 
 #endif

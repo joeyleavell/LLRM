@@ -29,6 +29,9 @@ namespace Ruby
 
 		llrm::ResourceSet	 mSceneResources;
 
+		// Samplers
+		llrm::Sampler		 mNearestSampler;
+
 		// Deferred geometry stage
 		llrm::Texture		 mDeferredAlbedo;
 		llrm::Texture		 mDeferredPosition;

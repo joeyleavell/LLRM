@@ -9,15 +9,15 @@ struct PSOut
     float4 Color: SV_Target0;
 };
 
-Texture2D<float4>  HDR     : register(t0, space0);
-SamplerState       HDRSamp : register(t0, space0);
+SamplerState       Nearest : register(t0, space0);
+Texture2D<float4>  HDR     : register(t1, space0);
 
 PSOut main(PSIn Input)
 {
     PSOut Output;
 
     // Sample HDR
-    float4 HDRColor = HDR.Sample(HDRSamp, Input.UV);
+    float4 HDRColor = HDR.Sample(Nearest, Input.UV);
     Output.Color = saturate(HDRColor);
 
     return Output;
