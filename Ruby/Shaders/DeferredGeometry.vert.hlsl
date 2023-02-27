@@ -11,17 +11,22 @@ cbuffer ModelUniforms : register(b0, space1)
 struct VSIn
 {
     float3 Position : SV_Position;
+	float3 Normal   : SV_Normal;
 };
 
 struct VSOut
 {
-    float4 Position : SV_Position;
+    float4 Position        : SV_Position;
+    float3 WorldPosition   : SV_TexCoord0;
+    float3 Normal          : SV_Normal;
 };
 
 VSOut main(VSIn Input)
 {
     VSOut Output;
-    Output.Position = ViewProjection * Transform * float4(Input.Position, 1.0);
+    Output.WorldPosition = (Transform * float4(Input.Position, 1.0)).xyz;
+	Output.Position = ViewProjection * float4(Output.WorldPosition, 1.0f);
+    Output.Normal = Transform * float4(Input.Normal, 0.0);
 
     return Output;
 }

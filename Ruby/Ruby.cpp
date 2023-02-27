@@ -295,15 +295,19 @@ namespace Ruby
 	void CreateDeferredResources(SceneResources& Res, glm::uvec2 Size)
 	{
 		// Create textures
-		Res.mDeferredAlbedo = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		Res.mDeferredAlbedo   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		Res.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		Res.mDeferredNormal   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
 
 		// Create render graph
 		Res.mDeferredGeoRG = llrm::CreateRenderGraph({
 			{
 				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Albedo
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Position
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Normal
 				{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentFormat::D24_UNORM_S8_UINT} // Depth
 			}, 
-			{{{0, 1}}}
+			{{{0, 1, 2, 3}}}
 		});
 
 		Res.mDeferredShadeRG = llrm::CreateRenderGraph({
@@ -317,9 +321,12 @@ namespace Ruby
 			Res.mDeferredGeoRG,
 			{GContext.mSceneResourceLayout, GContext.mObjectResourceLayout},
 			sizeof(MeshVertex),
-			{{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}},
+			{
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, Position)}
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, m)}
+			},
 			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}},
+			{{false}, {false}, {false}},
 			{true},
 			0
 		});
@@ -342,7 +349,7 @@ namespace Ruby
 		// Create frame buffer
 		Res.mDeferredGeoFB = llrm::CreateFrameBuffer({
 			Size.x, Size.y,
-			{Res.mDeferredAlbedo, Res.mDepth},
+			{Res.mDeferredAlbedo, Res.mDeferredPosition, Res.mDeferredNormal, Res.mDepth},
 			Res.mDeferredGeoRG
 		});
 
@@ -438,10 +445,14 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 		llrm::Begin(DstCmd);
 		{
 			llrm::TransitionTexture(DstCmd, Resources.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, Resources.mDeferredPosition, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, Resources.mDeferredNormal, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 
 			// Deferred geometry stage
 			std::vector<llrm::ClearValue> ClearValues = {
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f},
+				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
+				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
 				{llrm::ClearType::Float, 1.0f}
 			};
 			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredGeoRG, Resources.mDeferredGeoFB, ClearValues);

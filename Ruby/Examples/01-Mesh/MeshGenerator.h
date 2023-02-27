@@ -9,6 +9,13 @@ inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
 	// Convert to half size
 	Size /= 2.0f;
 
+	auto AddQuad = [&Result](std::vector<Ruby::MeshVertex> Verts, bool Reverse = false)
+	{
+		uint32_t Base = Result.mVerts.size();
+
+		Result.mVerts.insert(Result.mVerts.begin(), Verts.begin(), Verts.end());
+	};
+
 	glm::vec3 BackLeftBottom = Pos + glm::vec3{-Size.x, -Size.y, Size.z};
 	glm::vec3 BackLeftTop = Pos + glm::vec3{ -Size.x, Size.y, Size.z };
 	glm::vec3 BackRightTop = Pos + glm::vec3{ Size.x, Size.y, Size.z };

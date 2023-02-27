@@ -31,6 +31,9 @@ namespace Ruby
 
 		// Deferred geometry stage
 		llrm::Texture		 mDeferredAlbedo;
+		llrm::Texture		 mDeferredPosition;
+		llrm::Texture		 mDeferredNormal;
+
 		llrm::RenderGraph	 mDeferredGeoRG;
 		llrm::FrameBuffer	 mDeferredGeoFB;
 		llrm::Pipeline		 mDeferredGeoPipe;
@@ -120,7 +123,9 @@ namespace Ruby
 
 	struct MeshVertex
 	{
-		glm::vec3 Position;
+		glm::vec3 mPosition;
+		glm::vec3 mNormal;
+
 	};
 
 	struct Tesselation
