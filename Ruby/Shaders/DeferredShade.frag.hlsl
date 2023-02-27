@@ -18,9 +18,16 @@ PSOut main(PSIn Input)
 {
     PSOut Output;
 
-    // Sample albedo
-    float4 AlbedoColor = Albedo.Sample(Nearest, Input.UV);
-    Output.Color = AlbedoColor;
+    // Sample geometry
+    float4 Albedo   = Albedo.Sample(Nearest, Input.UV);
+    float3 Position = Position.Sample(Nearest, Input.UV);
+    float3 Normal   = Normal.Sample(Nearest, Input.UV);
+
+    // Directional light
+    float3 Dir = normalize(float3(0.0f, 0.0f, -1.0f));
+    float NDotL = max(dot(Normal, -Dir), 0.0f);
+
+	Output.Color = Albedo * NDotL;
 
     return Output;
 }
