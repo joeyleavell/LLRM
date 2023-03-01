@@ -12,6 +12,7 @@ namespace Ruby
 
 	typedef uint32_t SceneId;
 	typedef uint32_t ObjectId;
+	typedef uint32_t LightId;
 
 	enum class RenderingAPI
 	{
@@ -28,6 +29,7 @@ namespace Ruby
 		llrm::IndexBuffer mFullScreenQuadIbo;
 
 		llrm::ResourceSet	 mSceneResources;
+		llrm::ResourceSet	 mLightResources;
 
 		// Samplers
 		llrm::Sampler		 mNearestSampler;
@@ -63,13 +65,21 @@ namespace Ruby
 		uint32_t mIndexCount;
 	};
 
+	enum class ObjectType
+	{
+		Mesh,
+		Light
+	};
+
 	struct Object
 	{
+		ObjectType mType;
 		uint32_t mId;
-		uint32_t mMeshId;
+		uint32_t mReferenceId;
 		glm::vec3 mPosition;
 		glm::vec3 mRotation;
 
+		// Optional
 		llrm::ResourceSet mObjectResources;
 	};
 
@@ -81,6 +91,20 @@ namespace Ruby
 		std::unordered_set<uint32_t> mObjects;
 	};
 
+	enum class LightType
+	{
+		Directional,
+		Spot
+	};
+
+	struct Light
+	{
+		uint32_t  mId;
+		LightType mType;
+		glm::vec3 mColor;
+		float	  mIntensity;
+	};
+
 	struct RubyContext
 	{
 		std::string ShadersRoot;
@@ -90,6 +114,7 @@ namespace Ruby
 
 		std::unordered_map<uint32_t, SceneResources> mResources;
 
+		std::unordered_map<uint32_t, Light> mLights;
 		std::unordered_map<uint32_t, Mesh> mMeshes;
 		std::unordered_map<uint32_t, Object> mObjects;
 		std::unordered_map<uint32_t, Scene> mScenes;
@@ -97,10 +122,11 @@ namespace Ruby
 		// Resource layouts
 		llrm::ResourceLayout mTonemapLayout{};
 		llrm::ResourceLayout mSceneResourceLayout;
+		llrm::ResourceLayout mLightsResourceLayout;
 		llrm::ResourceLayout mObjectResourceLayout;
 		llrm::ResourceLayout mDeferredShadeRl;
 
-		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0;
+		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
 
 	struct SwapChain
@@ -142,15 +168,23 @@ namespace Ruby
 	SwapChain CreateSwapChain(GLFWwindow* Wnd);
 	void DestroySwapChain(const SwapChain& Swap);
 
+	// Light
+	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity);
+	void DestroyLight(LightId Light);
+	Light& GetLight(LightId Light);
+
 	// Mesh
 	Mesh CreateMesh(const Tesselation& Tesselation);
 	void DestroyMesh(const Mesh& Mesh);
 	Mesh& GetMesh(uint32_t MeshId);
 
 	// Object
-	ObjectId CreateObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation);
+	ObjectId CreateMeshObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation);
+	ObjectId CreateLightObject(LightId Light, glm::vec3 Position, glm::vec3 Rotation);
 	void DestroyObject(ObjectId Id);
 	Object& GetObject(ObjectId ObjectId);
+	bool IsMeshObject(ObjectId Id);
+	bool IsLightObject(ObjectId Id);
 
 	// Scene
 	SceneId CreateScene();

@@ -13,9 +13,13 @@ Ruby::SceneId CreateScene()
 
 	// Create object in front of camera
 	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 0, 0, 0 }, { 10, 10, 10 }));
-	gCube = Ruby::CreateObject(Floor, { 0, 0, -30.0f }, {0, 0, 0});
-
+	gCube = Ruby::CreateMeshObject(Floor, { 0, 0, -30.0f }, {0, 0, 0});
 	Ruby::AddObject(NewScene, gCube);
+
+	// Create directional light facing (0.0, 0.0, -1.0)
+	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f);
+	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { 0.0f, 0.0f, 0.0f });
+	Ruby::AddObject(NewScene, DirLight);
 
 	return NewScene;
 }

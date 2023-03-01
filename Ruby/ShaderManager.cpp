@@ -137,7 +137,7 @@ bool LoadShaderSource(std::string Name, std::string& OutSrc)
     // Load HLSL
 
     std::filesystem::path Path = Ruby::GetProgramPath();
-    std::filesystem::path Shader = Path.parent_path().parent_path() / "Shaders" / (Name + ".hlsl");
+    std::filesystem::path Shader = Path.parent_path().parent_path() / "Shaders" / Name;
 
     std::ifstream Input(Shader.string());
 
@@ -155,6 +155,58 @@ bool LoadShaderSource(std::string Name, std::string& OutSrc)
     return true;
 }
 
+class CustomIncluder : public glslang::TShader::Includer
+{
+public:
+
+    IncludeResult* includeSystem(const char* HeaderName, const char* /* Includer name (not used here) */, size_t Depth) override
+    {
+        return includeLocal(HeaderName, "", Depth);
+    }
+
+    IncludeResult* includeLocal(const char* HeaderName, const char* /* Includer name (not used here) */, size_t Depth) override
+    {
+        if (Depth > 30)
+        {
+            static std::string Err = "Max include depth reached. May indicate a cyclical include";
+            return new IncludeResult{ "", Err.c_str(), Err.size(), nullptr };
+        }
+
+        if (IncludeCache.contains(HeaderName))
+        {
+            std::string* IncludeData = IncludeCache[HeaderName];
+            return new IncludeResult{ HeaderName, IncludeData->c_str(), IncludeData->size(), nullptr };
+        }
+
+        std::string IncludeContents;
+        std::string Err;
+        bool Success = LoadShaderSource(HeaderName, IncludeContents);
+        if(!Success)
+        {
+            std::string* NewError = new std::string(Err);
+            Errors.push_back(NewError);
+        	return new IncludeResult{ "", NewError->c_str(), NewError->size(), nullptr };
+        }
+        else
+        {
+            std::string* NewData = new std::string(IncludeContents);
+            IncludeCache.emplace(HeaderName, NewData);
+        	return new IncludeResult{ HeaderName, NewData->c_str(), NewData->size(), nullptr };
+        }
+    }
+
+    void releaseInclude(IncludeResult* Result) override
+    {
+        delete Result;
+    }
+
+private:
+
+    std::unordered_map<std::string, std::string*> IncludeCache;
+    std::vector<std::string*> Errors;
+
+} Includer;
+
 bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCompileResult& OutResult)
 {
 
@@ -167,7 +219,14 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
     VertexShader.setStrings(VertSourcesArray, 1);
     VertexShader.setEntryPoint("main");
 
-    if (!VertexShader.parse(&DefaultTBuiltInResource, 0, EProfile::ECoreProfile, false, false, EShMessages::EShMsgDefault))
+    if (!VertexShader.parse(&DefaultTBuiltInResource,
+        0,
+        EProfile::ECoreProfile,
+        false,
+        false, 
+        EShMessages::EShMsgDefault, 
+        Includer)
+    )
     {
         std::cerr << VertexShader.getInfoLog() << std::endl;
         return false;
@@ -182,7 +241,14 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
     FragmentShader.setStrings(FragSourcesArray, 1);
     FragmentShader.setEntryPoint("main");
 
-    if (!FragmentShader.parse(&DefaultTBuiltInResource, 0, EProfile::ECoreProfile, false, false, EShMessages::EShMsgVulkanRules))
+    if (!FragmentShader.parse(&DefaultTBuiltInResource,
+        0,
+        EProfile::ECoreProfile,
+        false,
+        false,
+        EShMessages::EShMsgVulkanRules,
+        Includer)
+    )
     {
         std::cerr << FragmentShader.getInfoLog() << std::endl;
         return false;
@@ -220,9 +286,9 @@ static std::string FragExt = ".frag";
 bool CompileShader(std::string Vert, std::string Frag, ShaderCompileResult& OutResult)
 {
     std::string VertSrc{}, FragSrc{};
-    if (!LoadShaderSource(Vert + VertExt, VertSrc))
+    if (!LoadShaderSource(Vert + VertExt + ".hlsl", VertSrc))
         return false;
-    if (!LoadShaderSource(Frag + FragExt, FragSrc))
+    if (!LoadShaderSource(Frag + FragExt + ".hlsl", FragSrc))
         return false;
 
 #ifdef LLRM_VULKAN

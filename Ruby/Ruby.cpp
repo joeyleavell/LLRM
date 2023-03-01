@@ -79,6 +79,11 @@ namespace Ruby
 		{0, llrm::ShaderStage::Vertex, sizeof(CameraVertexUniforms), 1}
 		}, {} });
 
+		NewContext.mLightsResourceLayout = llrm::CreateResourceLayout({
+{
+		{0, llrm::ShaderStage::Fragment, sizeof(SceneLights), 1}
+		}, {} });
+
 		NewContext.mObjectResourceLayout = llrm::CreateResourceLayout({
 {
 		{0, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1}
@@ -170,6 +175,31 @@ namespace Ruby
 		llrm::DestroySurface(Swap.mSurface);
 	}
 
+	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity)
+	{
+		Light Result;
+
+		Result.mId = GContext.mNextLightId;
+		Result.mType = Type;
+		Result.mColor = Color;
+		Result.mIntensity = Intensity;
+
+		GContext.mNextLightId++;
+		GContext.mLights.emplace(Result.mId, Result);
+
+		return Result.mId;
+	}
+
+	void DestroyLight(LightId Light)
+	{
+		GContext.mLights.erase(Light);
+	}
+
+	Light& GetLight(LightId Light)
+	{
+		return GContext.mLights[Light];
+	}
+
 	Mesh CreateMesh(const Tesselation& Tesselation)
 	{
 		Mesh Result;
@@ -198,17 +228,33 @@ namespace Ruby
 		return GContext.mMeshes[MeshId];
 	}
 
-	ObjectId CreateObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation)
+	ObjectId CreateMeshObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation)
 	{
 		Object Result;
+		Result.mType = ObjectType::Mesh;
 		Result.mId = GContext.mNextMeshId;
-		Result.mMeshId = Mesh.mId;
+		Result.mReferenceId = Mesh.mId;
 		Result.mPosition = Position;
 		Result.mRotation = Rotation;
 
 		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
 
 		GContext.mNextMeshId++;
+		GContext.mObjects.emplace(Result.mId, Result);
+
+		return Result.mId;
+	}
+
+	ObjectId CreateLightObject(LightId Light, glm::vec3 Position, glm::vec3 Rotation)
+	{
+		Object Result;
+		Result.mType = ObjectType::Light;
+		Result.mId = GContext.mNextObjectId;
+		Result.mReferenceId = Light;
+		Result.mPosition = Position;
+		Result.mRotation = Rotation;
+
+		GContext.mNextObjectId++;
 		GContext.mObjects.emplace(Result.mId, Result);
 
 		return Result.mId;
@@ -223,6 +269,16 @@ namespace Ruby
 	Object& GetObject(ObjectId ObjectId)
 	{
 		return GContext.mObjects[ObjectId];
+	}
+
+	bool IsMeshObject(ObjectId Id)
+	{
+		return GContext.mObjects[Id].mType == ObjectType::Mesh;
+	}
+
+	bool IsLightObject(ObjectId Id)
+	{
+		return GContext.mObjects[Id].mType == ObjectType::Light;
 	}
 
 	SceneId CreateScene()
@@ -298,6 +354,7 @@ namespace Ruby
 	void CreateResources(SceneResources& Res)
 	{
 		Res.mSceneResources = llrm::CreateResourceSet({ GContext.mSceneResourceLayout});
+		Res.mLightResources = llrm::CreateResourceSet({ GContext.mLightsResourceLayout });
 		Res.mDeferredShadeRes = llrm::CreateResourceSet({ GContext.mDeferredShadeRl });
 	}
 
@@ -343,7 +400,7 @@ namespace Ruby
 		Res.mDeferredShadePipe = llrm::CreatePipeline({
 			LoadRasterShader("DeferredShade", "DeferredShade"),
 			Res.mDeferredShadeRG,
-			{GContext.mDeferredShadeRl},
+			{GContext.mLightsResourceLayout, GContext.mDeferredShadeRl},
 			sizeof(PosUV),
 			{
 				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
@@ -440,17 +497,49 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 
 		UpdateCameraUniforms(Resources.mSceneResources, Camera);
 
+		// Accumulate lights for this frame
+		SceneLights Lights;
+
 		// Create model uniforms
 		for (uint32_t Object : Scene.mObjects)
 		{
 			Ruby::Object& Obj = GetObject(Object);
 
-			// Create transform matrix
-			ModelVertexUniforms ModelUniforms {
-				glm::transpose(BuildTransform(Obj.mPosition, Obj.mRotation, {1, 1, 1}))
-			};
-			llrm::UpdateUniformBuffer(Obj.mObjectResources, 0, &ModelUniforms, sizeof(ModelUniforms));
+			if(IsMeshObject(Obj.mId))
+			{
+				// Create transform matrix
+				ModelVertexUniforms ModelUniforms{
+					glm::transpose(BuildTransform(Obj.mPosition, Obj.mRotation, {1, 1, 1}))
+				};
+				llrm::UpdateUniformBuffer(Obj.mObjectResources, 0, &ModelUniforms, sizeof(ModelUniforms));
+			}
+			if(IsLightObject(Obj.mId))
+			{
+				const Light& Light = GContext.mLights[Obj.mReferenceId];
+				if(Light.mType == LightType::Directional)
+				{
+					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
+
+					Lights.mDirectionalLights[Lights.mNumDirLights].mColor = Light.mColor;
+					Lights.mDirectionalLights[Lights.mNumDirLights].mDirection = { Direction.x, Direction.y, Direction.z };
+					Lights.mDirectionalLights[Lights.mNumDirLights].mIntensity = Light.mIntensity;
+					Lights.mNumDirLights++;
+				}
+				else if(Light.mType == LightType::Spot)
+				{
+					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
+
+					Lights.mSpotLights[Lights.mNumSpotLights].mPosition = Obj.mPosition;
+					Lights.mSpotLights[Lights.mNumSpotLights].mColor = Light.mColor;
+					Lights.mSpotLights[Lights.mNumSpotLights].mDirection = { Direction.x, Direction.y, Direction.z };
+					Lights.mSpotLights[Lights.mNumSpotLights].mIntensity = Light.mIntensity;
+					Lights.mNumSpotLights++;
+				}
+			}
 		}
+
+		// Update lights
+		llrm::UpdateUniformBuffer(Resources.mLightResources, 0, &Lights, sizeof(Lights));
 
 		// Update tonemap inputs
 		llrm::UpdateSamplerResource(DstResources, Resources.mNearestSampler, 0);
@@ -486,10 +575,13 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 				for(uint32_t Object : Scene.mObjects)
 				{
 					Ruby::Object& Obj = GetObject(Object);
-					Ruby::Mesh& Mesh = GetMesh(Obj.mMeshId);
+					if(IsMeshObject(Obj.mId))
+					{
+						Ruby::Mesh& Mesh = GetMesh(Obj.mReferenceId);
 
-					llrm::BindResources(DstCmd, {Resources.mSceneResources, Obj.mObjectResources});
-					llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
+						llrm::BindResources(DstCmd, { Resources.mSceneResources, Obj.mObjectResources });
+						llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
+					}
 				}
 			}
 			llrm::EndRenderGraph(DstCmd);
@@ -507,7 +599,7 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
 				llrm::BindPipeline(DstCmd, Resources.mDeferredShadePipe);
-				llrm::BindResources(DstCmd, { Resources.mDeferredShadeRes });
+				llrm::BindResources(DstCmd, { Resources.mLightResources, Resources.mDeferredShadeRes });
 				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
 			}
 			llrm::EndRenderGraph(DstCmd);
