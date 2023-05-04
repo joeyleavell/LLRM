@@ -310,6 +310,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
 
 		//GLog->error(std::string("[vkError]: ") + CallbackData->pMessage + "\n" + TraceString);
 	}
+	else
+	{
+		std::cout << "[vkInfo]: " << CallbackData->pMessage << std::endl;
+	}
 
 	return VK_FALSE;
 }
@@ -705,6 +709,8 @@ namespace llrm
 			return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		case AttachmentUsage::ShaderRead:
 			return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		case AttachmentUsage::ShaderReadDepthStencil:
+			return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 		case AttachmentUsage::Undefined:
 			return VK_IMAGE_LAYOUT_UNDEFINED;
 		default:
@@ -785,8 +791,8 @@ namespace llrm
 	bool CreateFrameBufferResource(VulkanFrameBuffer* DstFbo, VkRenderPass Pass, uint32_t Width, uint32_t Height)
 	{
 		std::vector<VkImageView> Attachments;
-		for (VulkanTexture* Attach : DstFbo->AllAttachments)
-			Attachments.push_back(Attach->TextureImageView);
+		for (VulkanTextureView* Attach : DstFbo->AllAttachments)
+			Attachments.push_back(Attach->ImageView);
 
 		// Finally, create the framebuffer
 		VkFramebufferCreateInfo FrameBufferCreateInfo{};
@@ -916,6 +922,16 @@ namespace llrm
 			ImageMemBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			SourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 		}
+		else if (Old == AttachmentUsage::DepthStencilAttachment)
+		{
+			ImageMemBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			SourceStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		}
+		else if (Old == AttachmentUsage::ShaderReadDepthStencil)
+		{
+			ImageMemBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			SourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
 		else if (Old == AttachmentUsage::TransferDestination)
 		{
 			ImageMemBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -939,7 +955,7 @@ namespace llrm
 		}
 		else if (New == AttachmentUsage::DepthStencilAttachment)
 		{
-			ImageMemBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			ImageMemBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 			DstStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 		}
 		else if (New == AttachmentUsage::ShaderRead)
@@ -1470,7 +1486,9 @@ namespace llrm
 		// Get the actual swap chain images
 		vkGetSwapchainImagesKHR(GVulkanContext.Device, Dst->SwapChain, &ImageCount, Images.data());
 
+		// Get the images and create the image views
 		Dst->Images.resize(ImageCount);
+		Dst->ImageViews.resize(ImageCount);
 
 		for (uint32_t ImageIndex = 0; ImageIndex < ImageCount; ImageIndex++)
 		{
@@ -1492,7 +1510,7 @@ namespace llrm
 			ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
 			ImageViewCreateInfo.subresourceRange.layerCount = 1;
 
-			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &Dst->Images[ImageIndex].TextureImageView) != VK_SUCCESS)
+			if (vkCreateImageView(GVulkanContext.Device, &ImageViewCreateInfo, nullptr, &Dst->ImageViews[ImageIndex].ImageView) != VK_SUCCESS)
 			{
 				//GLog->error("Failed to create image view for swap chain");
 
@@ -1514,7 +1532,7 @@ namespace llrm
 		// Clean up framebuffers and image views
 		for (uint32_t SwapChainImage = 0; SwapChainImage < VkSwap->Images.size(); SwapChainImage++)
 		{
-			vkDestroyImageView(GVulkanContext.Device, VkSwap->Images[SwapChainImage].TextureImageView, nullptr);
+			vkDestroyImageView(GVulkanContext.Device, VkSwap->ImageViews[SwapChainImage].ImageView, nullptr);
 		}
 	}
 
@@ -1743,6 +1761,12 @@ namespace llrm
 		return &VkSwap->Images[Index];
 	}
 
+	TextureView GetSwapChainImageView(SwapChain Swap, uint32_t Index)
+	{
+		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
+		return &VkSwap->ImageViews[Index];
+	}
+
 	void RecreateSwapChain(SwapChain Swap, Surface Target, int32_t DesiredWidth, int32_t DesiredHeight)
 	{
 		VulkanSwapChain* VkSwap = static_cast<VulkanSwapChain*>(Swap);
@@ -1808,7 +1832,7 @@ namespace llrm
 		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &BufferWrite, 0, nullptr);
 	}
 
-	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding)
+	void UpdateTextureResource(ResourceSet Resources, std::vector<TextureView> Images, uint32_t Binding)
 	{
 		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
@@ -1819,14 +1843,14 @@ namespace llrm
 
 		for (uint32_t ArrayImage = 0; ArrayImage < Images.size(); ArrayImage++)
 		{
-			VulkanTexture* VkTex = static_cast<VulkanTexture*>(Images[ArrayImage]);
+			VulkanTextureView* VkTex = static_cast<VulkanTextureView*>(Images[ArrayImage]);
 
 			VkDescriptorImageInfo& ImageInfo = ImageInfos[ArrayImage];
 			VkWriteDescriptorSet& ImageWrite = Writes[ArrayImage];
 
 			ImageInfo = {};
 			ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			ImageInfo.imageView = VkTex->TextureImageView;
+			ImageInfo.imageView = VkTex->ImageView;
 			ImageInfo.sampler = nullptr;
 
 			ImageWrite = {};
@@ -2494,6 +2518,7 @@ namespace llrm
 		std::vector<VkSubpassDescription> VkPassDescriptions;
 
 		bool HasDepthAttachment = false;
+		bool HasColorAttachment = false;
 
 		// Create attachment descriptions
 		for (uint32_t AttachmentIndex = 0; AttachmentIndex < CreateInfo.Attachments.size(); AttachmentIndex++)
@@ -2514,6 +2539,8 @@ namespace llrm
 
 			if (IsDepthFormat(Description.Format))
 				HasDepthAttachment = true;
+			if (IsColorFormat(Description.Format))
+				HasColorAttachment = true;
 		}
 
 		// Create subpasses
@@ -2559,24 +2586,48 @@ namespace llrm
 
 		// Define explit external subpass dependencies
 		VkSubpassDependency PreviousDep{};
+		VkSubpassDependency PostDep{};
 		PreviousDep.srcSubpass = VK_SUBPASS_EXTERNAL;
 		PreviousDep.dstSubpass = 0;
-		PreviousDep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // Wait for the previous color attachment to be written
-		PreviousDep.srcAccessMask = 0;
-		PreviousDep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // Transition image at the color attachment output stage
-		PreviousDep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // Ensure we can write to color attachment
-
-		VkSubpassDependency PostDep{};
 		PostDep.srcSubpass = 0;
 		PostDep.dstSubpass = VK_SUBPASS_EXTERNAL;
-		PostDep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // We wrote to the FBO
-		PostDep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		PostDep.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT; // Next render pass needs this fbo to be made available
-		PostDep.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // Ensure next pass can read from fbo
+
+		if(HasColorAttachment)
+		{
+			PreviousDep.srcStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // Wait for the previous color attachment to be written
+			PreviousDep.srcAccessMask |= 0;
+			PreviousDep.dstStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // Transition image at the color attachment output stage
+			PreviousDep.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // Ensure we can write to color attachment
+
+			PostDep.srcStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // We wrote to the FBO
+			PostDep.srcAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			PostDep.dstStageMask |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT; // Next render pass needs this fbo to be made available
+			PostDep.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT; // Ensure next pass can read from fbo
+		}
 
 		// Add depth buffer dependencies
 		if (HasDepthAttachment)
 		{
+			PreviousDep.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			PreviousDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			PreviousDep.srcAccessMask |= VK_ACCESS_SHADER_READ_BIT;
+			PreviousDep.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+			PostDep.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			PostDep.srcAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			PostDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			PostDep.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+
+			/*PreviousDep.srcStageMask |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			PreviousDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			PreviousDep.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+			PostDep.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			PostDep.srcAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			PostDep.dstStageMask |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			PostDep.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT;*/
+
+			/*
 			PreviousDep.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			PreviousDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			PreviousDep.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -2585,6 +2636,7 @@ namespace llrm
 			PostDep.srcAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			PostDep.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			PostDep.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+		*/
 		}
 
 		std::vector<VkSubpassDependency> Deps = { PreviousDep, PostDep };
@@ -2829,27 +2881,43 @@ namespace llrm
 			});
 		}
 
+		RECORD_RESOURCE_ALLOC(Result)
+
+		return Result;
+	}
+
+	TextureView CreateTextureView(Texture Image, uint8_t Flags)
+	{
+		VulkanTexture* Texture = reinterpret_cast<VulkanTexture*>(Image);
+		VulkanTextureView* VkView = new VulkanTextureView{};
+
+		// TODO: Any need to specify different format? Vulkan spec says if MUTABLE and multiplanar == true, then we can. Seems rare
 		// Create image view
 		VkImageViewCreateInfo ViewInfo{};
 		ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		ViewInfo.image = Result->TextureImage;
+		ViewInfo.image = Texture->TextureImage;
 		ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		ViewInfo.format = AttachmentFormatToVkFormat(Format);
-		ViewInfo.subresourceRange.aspectMask = IsColorFormat(Format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+		ViewInfo.format = AttachmentFormatToVkFormat(Texture->TextureFormat);
+
+		if (Flags & COLOR_ASPECT)
+			ViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_COLOR_BIT;
+		if (Flags & DEPTH_ASPECT)
+			ViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (Flags & STENCIL_ASPECT)
+			ViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+
 		ViewInfo.subresourceRange.baseMipLevel = 0;
 		ViewInfo.subresourceRange.levelCount = 1;
 		ViewInfo.subresourceRange.baseArrayLayer = 0;
 		ViewInfo.subresourceRange.layerCount = 1;
 
-		if (vkCreateImageView(GVulkanContext.Device, &ViewInfo, nullptr, &Result->TextureImageView) != VK_SUCCESS)
+		if (vkCreateImageView(GVulkanContext.Device, &ViewInfo, nullptr, &VkView->ImageView) != VK_SUCCESS)
 		{
 			//GLog->critical("Failed to create vulkan image view");
 			return nullptr;
 		}
 
-		RECORD_RESOURCE_ALLOC(Result)
-
-		return Result;
+		return VkView;
 	}
 
 	Sampler CreateSampler(const SamplerCreateInfo& CreateInfo)
@@ -2892,9 +2960,9 @@ namespace llrm
 		Result->AttachmentHeight = CreateInfo.Height;
 		Result->CreatedFor = VkRenderGraph->RenderPass;
 
-		for(Texture Attach : CreateInfo.Attachments)
+		for(TextureView Attach : CreateInfo.Attachments)
 		{
-			Result->AllAttachments.push_back(static_cast<VulkanTexture*>(Attach));
+			Result->AllAttachments.push_back(static_cast<VulkanTextureView*>(Attach));
 		}
 
 		if (!CreateFrameBufferResource(Result, VkRenderGraph->RenderPass, CreateInfo.Width, CreateInfo.Height))
@@ -3117,7 +3185,6 @@ namespace llrm
 
 		vkFreeMemory(GVulkanContext.Device, VkTex->TextureMemory, nullptr);
 		vkDestroyImage(GVulkanContext.Device, VkTex->TextureImage, nullptr);
-		vkDestroyImageView(GVulkanContext.Device, VkTex->TextureImageView, nullptr);
 
 		if(VkTex->TextureFlags & TEXTURE_USAGE_WRITE)
 		{
@@ -3128,6 +3195,14 @@ namespace llrm
 		REMOVE_RESOURCE_ALLOC(VkTex)
 
 		delete VkTex;
+	}
+
+	void DestroyTextureView(TextureView ImageView)
+	{
+		vkDeviceWaitIdle(GVulkanContext.Device);
+		VulkanTextureView* VkTex = static_cast<VulkanTextureView*>(ImageView);
+
+		vkDestroyImageView(GVulkanContext.Device, VkTex->ImageView, nullptr);
 	}
 
 	void DestroySampler(Sampler Samp)

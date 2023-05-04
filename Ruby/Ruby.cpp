@@ -15,6 +15,13 @@ namespace Ruby
 	RenderingAPI GAPI = RenderingAPI::Vulkan;
 #endif
 
+	glm::mat4 CreateDirectionalVPMatrix(glm::vec3 Rotation)
+	{
+		glm::mat4 Proj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 100.0f);
+		glm::mat4 View = BuildTransform({ 5.0, 5.0, 0.0f }, Rotation, { 1.0f, 1.0f, 1.0f });
+
+		return View * Proj;
+	}
 
 	void UpdateSwapChain(llrm::SwapChain Swap, llrm::RenderGraph Graph, std::vector<llrm::FrameBuffer>& Fbos, std::vector<llrm::CommandBuffer>& CmdBuffers)
 	{
@@ -31,13 +38,36 @@ namespace Ruby
 
 			Fbos[Image] = llrm::CreateFrameBuffer({
 				Width, Height,
-				{llrm::GetSwapChainImage(Swap, Image)},
+				{llrm::GetSwapChainImageView(Swap, Image)},
 				Graph
 				});
 
 			if (!CmdBuffers[Image])
 				CmdBuffers[Image] = llrm::CreateCommandBuffer();
 		}
+	}
+
+	void CreateShadowMapResources()
+	{
+		GContext.mShadowMapRG = llrm::CreateRenderGraph({
+			{{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::D24_UNORM_S8_UINT}},
+			{{{0}}}
+		});
+
+		GContext.mShadowMapPipe = llrm::CreatePipeline({
+			LoadRasterShader("DepthRender", "DepthRender"),
+			GContext.mShadowMapRG,
+			{GContext.mLightObjectResourceLayout, GContext.mObjectResourceLayout},
+			sizeof(MeshVertex),
+			{
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{true},
+			0
+		});
 	}
 
 	RubyContext CreateContext(const ContextParams& Params)
@@ -80,11 +110,17 @@ namespace Ruby
 		}, {} });
 
 		NewContext.mLightsResourceLayout = llrm::CreateResourceLayout({
-{
-		{0, llrm::ShaderStage::Fragment, sizeof(SceneLights), 1}
-		}, {} });
+			{{0, llrm::ShaderStage::Fragment, sizeof(SceneLights), 1}},
+			{{1, llrm::ShaderStage::Fragment, 1}},
+			{}
+		});
 
 		NewContext.mObjectResourceLayout = llrm::CreateResourceLayout({
+{
+		{0, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1}
+		}, {} });
+
+		NewContext.mLightObjectResourceLayout = llrm::CreateResourceLayout({
 {
 		{0, llrm::ShaderStage::Vertex, sizeof(ModelVertexUniforms), 1}
 		}, {} });
@@ -101,6 +137,8 @@ namespace Ruby
 		});
 
 		GContext = NewContext;
+
+		CreateShadowMapResources();
 
 		return NewContext;
 	}
@@ -254,6 +292,20 @@ namespace Ruby
 		Result.mPosition = Position;
 		Result.mRotation = Rotation;
 
+		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
+
+		// Create shadow map
+		Result.mShadowDepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
+			llrm::AttachmentUsage::ShaderRead, 1024, 1024, llrm::TEXTURE_USAGE_RT | llrm::TEXTURE_USAGE_SAMPLE);
+		Result.mShadowDepthAttachmentRenderPassView = llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT | llrm::STENCIL_ASPECT);
+		Result.mShadowDepthAttachmentResourceView	= llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT);
+
+		Result.mShadowFbo = llrm::CreateFrameBuffer({
+			1024, 1024,
+			{Result.mShadowDepthAttachmentRenderPassView},
+			GContext.mShadowMapRG
+		});
+
 		GContext.mNextObjectId++;
 		GContext.mObjects.emplace(Result.mId, Result);
 
@@ -311,10 +363,12 @@ namespace Ruby
 	{
 		FrameBuffer NewBuffer{};
 		NewBuffer.ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, llrm::AttachmentUsage::ColorAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
+		NewBuffer.ColorAttachmentView = llrm::CreateTextureView(NewBuffer.ColorAttachment, llrm::AspectFlags::COLOR_ASPECT);
 
 		if(DepthAttachment)
 		{
 			NewBuffer.DepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
+			NewBuffer.DepthAttachmentView = llrm::CreateTextureView(NewBuffer.DepthAttachment, llrm::AspectFlags::DEPTH_ASPECT);
 		}
 
 		// Create render graph
@@ -339,7 +393,7 @@ namespace Ruby
 
 		NewBuffer.Buffer = llrm::CreateFrameBuffer({
 			Width, Height,
-			{NewBuffer.ColorAttachment},
+			{NewBuffer.ColorAttachmentView},
 			NewBuffer.Graph
 		});
 
@@ -364,6 +418,9 @@ namespace Ruby
 		Res.mDeferredAlbedo   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
 		Res.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
 		Res.mDeferredNormal   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		Res.mDeferredAlbedoView = llrm::CreateTextureView(Res.mDeferredAlbedo, llrm::AspectFlags::COLOR_ASPECT);
+		Res.mDeferredPositionView = llrm::CreateTextureView(Res.mDeferredPosition, llrm::AspectFlags::COLOR_ASPECT);
+		Res.mDeferredNormalView = llrm::CreateTextureView(Res.mDeferredNormal, llrm::AspectFlags::COLOR_ASPECT);
 
 		// Create render graph
 		Res.mDeferredGeoRG = llrm::CreateRenderGraph({
@@ -415,14 +472,14 @@ namespace Ruby
 		// Create frame buffer
 		Res.mDeferredGeoFB = llrm::CreateFrameBuffer({
 			Size.x, Size.y,
-			{Res.mDeferredAlbedo, Res.mDeferredPosition, Res.mDeferredNormal, Res.mDepth},
+			{Res.mDeferredAlbedoView, Res.mDeferredPositionView, Res.mDeferredNormalView, Res.mDepthView},
 			Res.mDeferredGeoRG
 		});
 
 		Res.mDeferredShadeFB = llrm::CreateFrameBuffer({
-	Size.x, Size.y,
-	{Res.mHDRColor},
-	Res.mDeferredShadeRG
+			Size.x, Size.y,
+			{Res.mHDRColorView},
+			Res.mDeferredShadeRG
 		});
 	}
 
@@ -455,10 +512,12 @@ namespace Ruby
 		SceneResources NewResources{};
 
 		// Create color texture
-		NewResources.mHDRColor = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		NewResources.mHDRColor	   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		NewResources.mHDRColorView = llrm::CreateTextureView(NewResources.mHDRColor, llrm::AspectFlags::COLOR_ASPECT);
 
 		// Create depth buffer
 		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT);
+		NewResources.mDepthView = llrm::CreateTextureView(NewResources.mDepth, llrm::AspectFlags::DEPTH_ASPECT);
 
 		CreateSamplers(NewResources);
 		CreateFullScreenQuad(NewResources);
@@ -476,6 +535,52 @@ namespace Ruby
 glm::transpose(ViewMatrix * Camera.mProjection)
 		};
 		llrm::UpdateUniformBuffer(DstRes, 0, &CamUniforms, sizeof(CamUniforms));
+	}
+
+	void RenderShadowMap(const Scene& Scene, const llrm::CommandBuffer& DstCmd,
+		glm::uvec2 ShadowMapSize, const Object& Light
+	)
+	{
+		Ruby::Light LightData = Ruby::GetLight(Light.mReferenceId);
+
+		ShadowLightUniforms ShadowUniforms;
+		if(LightData.mType == LightType::Directional)
+		{
+			ShadowUniforms.mViewProjection = CreateDirectionalVPMatrix(Light.mRotation);
+		}
+
+		// Update resources
+		llrm::UpdateUniformBuffer(Light.mObjectResources, 0, &ShadowUniforms, sizeof(ShadowUniforms));
+
+		// Transition depth attachment to correct usage
+		llrm::TransitionTexture(DstCmd, Light.mShadowDepthAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment);
+
+		// Depth render
+		std::vector<llrm::ClearValue> ClearValues = {
+			{llrm::ClearType::Float, 1.0f}
+		};
+		llrm::BeginRenderGraph(DstCmd, GContext.mShadowMapRG, Light.mShadowFbo, ClearValues);
+		{	
+			llrm::SetViewport(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
+			llrm::SetScissor(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
+
+			llrm::BindPipeline(DstCmd, GContext.mShadowMapPipe);
+
+			for (uint32_t Object : Scene.mObjects)
+			{
+				Ruby::Object& Obj = GetObject(Object);
+				if (IsMeshObject(Obj.mId))
+				{
+					Ruby::Mesh& Mesh = GetMesh(Obj.mReferenceId);
+
+					llrm::BindResources(DstCmd, { Light.mObjectResources, Obj.mObjectResources });
+					llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
+				}
+			}
+		}
+		llrm::EndRenderGraph(DstCmd);
+
+		//llrm::TransitionTexture(DstCmd, Light.mShadowDepthAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead);
 	}
 
 	void RenderScene(const Scene& Scene, 
@@ -538,22 +643,45 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			}
 		}
 
+		// Gather shadow maps
+		std::vector<llrm::TextureView> ShadowMaps;
+		for (uint32_t Object : Scene.mObjects)
+		{
+			Ruby::Object& Obj = GetObject(Object);
+			if (IsLightObject(Obj.mId))
+			{
+				ShadowMaps.push_back(Obj.mShadowDepthAttachmentResourceView);
+			}
+		}
+
 		// Update lights
 		llrm::UpdateUniformBuffer(Resources.mLightResources, 0, &Lights, sizeof(Lights));
+		llrm::UpdateTextureResource(Resources.mLightResources, ShadowMaps, 1);
 
 		// Update tonemap inputs
 		llrm::UpdateSamplerResource(DstResources, Resources.mNearestSampler, 0);
-		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColor }, 1);
+		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColorView }, 1);
 
 		// Update deferred shade inputs
 		llrm::UpdateSamplerResource(Resources.mDeferredShadeRes, Resources.mNearestSampler, 0);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedo }, 1);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredPosition }, 2);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredNormal }, 3);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedoView }, 1);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredPositionView }, 2);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredNormalView }, 3);
 
 		// Render the scene
 		llrm::Begin(DstCmd);
 		{
+
+			// Render shadow maps
+			for (uint32_t Object : Scene.mObjects)
+			{
+				Ruby::Object& Obj = GetObject(Object);
+				if (IsLightObject(Obj.mId))
+				{
+					RenderShadowMap(Scene, DstCmd, { 1024, 1024 }, Obj);
+				}
+			}
+			
 			llrm::TransitionTexture(DstCmd, Resources.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 			llrm::TransitionTexture(DstCmd, Resources.mDeferredPosition, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 			llrm::TransitionTexture(DstCmd, Resources.mDeferredNormal, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
@@ -634,6 +762,7 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			const llrm::FrameBuffer& Buffer = Target.mFrameBuffers[ImageIndex];
 			const llrm::CommandBuffer& Cmd = Target.mCmdBuffers[ImageIndex];
 
+			llrm::Reset(Cmd);
 			RenderScene(ToRender, 
 				ViewportSize, 
 				Camera, 

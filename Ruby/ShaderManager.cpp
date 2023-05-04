@@ -126,6 +126,9 @@ const TBuiltInResource DefaultTBuiltInResource = {
     }
 };
 
+#define FORCE_BUILD_SHADERS 1
+constexpr bool gForceBuildShaders = bool(FORCE_BUILD_SHADERS);
+
 struct ShaderCompileResult
 {
     std::vector<uint32_t> OutVertShader;
@@ -331,7 +334,7 @@ namespace Ruby
 
         ShaderCompileResult Result{};
 
-        if(!std::filesystem::exists(VertPath) || !std::filesystem::exists(FragPath))
+        if(gForceBuildShaders || (!std::filesystem::exists(VertPath) || !std::filesystem::exists(FragPath)))
         {
             if(!CompileShader(VertName, FragName, Result))
             {

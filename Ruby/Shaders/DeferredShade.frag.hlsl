@@ -19,6 +19,8 @@ cbuffer SceneLights : register(b0, space0)
     uint NumSpotLights;
 }
 
+Texture2D<float>  ShadowMap    : register(t1, space0);
+
 SamplerState       Nearest      : register(t0, space1);
 Texture2D<float4>  Albedo       : register(t1, space1);
 Texture2D<float4>  Position     : register(t2, space1);
@@ -27,6 +29,8 @@ Texture2D<float4>  Normal       : register(t3, space1);
 PSOut main(PSIn Input)
 {
     PSOut Output;
+
+    float Shadow   = ShadowMap.Sample(Nearest, Input.UV);
 
     // Sample geometry
     float4 Albedo   = Albedo.Sample(Nearest, Input.UV);

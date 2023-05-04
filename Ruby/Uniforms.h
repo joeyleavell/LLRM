@@ -12,6 +12,11 @@ struct ModelVertexUniforms
 	glm::mat4 mTransform;
 };
 
+struct ShadowLightUniforms
+{
+	glm::mat4 mViewProjection;
+};
+
 #define MAX_DIR_LIGHTS 1
 #define MAX_SPOT_LIGHTS 10
 

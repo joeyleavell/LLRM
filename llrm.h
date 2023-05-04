@@ -26,9 +26,17 @@ namespace llrm
 	typedef void* ResourceLayout;
 	typedef void* ResourceSet;
 	typedef void* Texture;
+	typedef void* TextureView;
 	typedef void* Sampler;
 
 	const uint32_t MAX_OUTPUT_COLORS = 8;
+
+	enum AspectFlags : uint8_t
+	{
+		COLOR_ASPECT = 1,
+		DEPTH_ASPECT = 2,
+		STENCIL_ASPECT = 4,
+	};
 
 	enum class AttachmentFormat
 	{
@@ -49,6 +57,7 @@ namespace llrm
 		TransferSource,
 		ColorAttachment,
 		DepthStencilAttachment,
+		ShaderReadDepthStencil,
 		ShaderRead,
 		Undefined
 	};
@@ -238,9 +247,9 @@ namespace llrm
 
 	struct FrameBufferCreateInfo
 	{
-		uint32_t				Width;
-		uint32_t				Height;
-		std::vector<Texture>	Attachments;
+		uint32_t				 Width;
+		uint32_t				 Height;
+		std::vector<TextureView> Attachments;
 
 		/**
 		 * The render graph that this frame buffer is targeting
@@ -358,6 +367,7 @@ namespace llrm
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo);
 	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
+	TextureView CreateTextureView(Texture Image, uint8_t Flags);
 	Sampler CreateSampler(const SamplerCreateInfo& CreateInfo);
 
 	// Destroy primitives
@@ -368,6 +378,7 @@ namespace llrm
 	void DestroyResourceLayout(ResourceLayout Layout);
 	void DestroyResourceSet(ResourceSet Resources);
 	void DestroyTexture(Texture Image);
+	void DestroyTextureView(TextureView ImageView);
 	void DestroySampler(Sampler Samp);
 	void DestroyFrameBuffer(FrameBuffer FrameBuffer);
 	void DestroyProgram(ShaderProgram Shader);
@@ -383,6 +394,7 @@ namespace llrm
 	void GetSwapChainSize(SwapChain Swap, uint32_t& Width, uint32_t& Height);
 	uint32_t GetSwapChainImageCount(SwapChain Swap);
 	Texture GetSwapChainImage(SwapChain Swap, uint32_t Index);
+	TextureView GetSwapChainImageView(SwapChain Swap, uint32_t Index);
 
 	// Vertex buffer operations
 	void UploadVertexBufferData(VertexBuffer Buffer, const void* Data, uint64_t Size);
@@ -395,7 +407,7 @@ namespace llrm
 
 	// Resource set operations
 	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
-	void UpdateTextureResource(ResourceSet Resources, std::vector<Texture> Images, uint32_t Binding) ;
+	void UpdateTextureResource(ResourceSet Resources, std::vector<TextureView> Images, uint32_t Binding) ;
 	void UpdateSamplerResource(ResourceSet Resources, Sampler Samp, uint32_t Binding);
 
 	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);

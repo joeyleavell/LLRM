@@ -21,8 +21,10 @@ namespace Ruby
 
 	struct SceneResources
 	{
-		llrm::Texture mHDRColor;
-		llrm::Texture mDepth;
+		llrm::Texture	  mHDRColor;
+		llrm::TextureView mHDRColorView;
+		llrm::Texture	  mDepth;
+		llrm::TextureView mDepthView;
 
 		// Full screen quad
 		llrm::VertexBuffer mFullScreenQuadVbo;
@@ -38,6 +40,9 @@ namespace Ruby
 		llrm::Texture		 mDeferredAlbedo;
 		llrm::Texture		 mDeferredPosition;
 		llrm::Texture		 mDeferredNormal;
+		llrm::TextureView	 mDeferredAlbedoView;
+		llrm::TextureView	 mDeferredPositionView;
+		llrm::TextureView	 mDeferredNormalView;
 
 		llrm::RenderGraph	 mDeferredGeoRG;
 		llrm::FrameBuffer	 mDeferredGeoFB;
@@ -79,8 +84,14 @@ namespace Ruby
 		glm::vec3 mPosition;
 		glm::vec3 mRotation;
 
-		// Optional
+		// Model matrix for Mesh types, shadow map resources for lights
 		llrm::ResourceSet mObjectResources;
+
+		// For light shadow maps
+		llrm::Texture mShadowDepthAttachment;
+		llrm::TextureView mShadowDepthAttachmentRenderPassView;
+		llrm::TextureView mShadowDepthAttachmentResourceView;
+		llrm::FrameBuffer mShadowFbo;
 	};
 
 	class Scene
@@ -124,7 +135,12 @@ namespace Ruby
 		llrm::ResourceLayout mSceneResourceLayout;
 		llrm::ResourceLayout mLightsResourceLayout;
 		llrm::ResourceLayout mObjectResourceLayout;
+		llrm::ResourceLayout mLightObjectResourceLayout;
 		llrm::ResourceLayout mDeferredShadeRl;
+
+		// Shadow map generation
+		llrm::RenderGraph	 mShadowMapRG;
+		llrm::Pipeline		 mShadowMapPipe;
 
 		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
@@ -197,7 +213,11 @@ namespace Ruby
 	struct FrameBuffer
 	{
 		llrm::Texture ColorAttachment;
+		llrm::TextureView ColorAttachmentView;
+
 		llrm::Texture DepthAttachment;
+		llrm::TextureView DepthAttachmentView;
+
 		llrm::FrameBuffer Buffer;
 		llrm::RenderGraph Graph{};
 	};

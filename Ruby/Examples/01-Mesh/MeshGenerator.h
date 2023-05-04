@@ -3,7 +3,7 @@
 #include "Ruby.h"
 #include "glm/glm.hpp"
 
-inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Pos, glm::vec3 Size)
+inline Ruby::Tesselation TesselateRectPrism(glm::vec3 Size)
 {
 	Ruby::Tesselation Result;
 	// Convert to half size

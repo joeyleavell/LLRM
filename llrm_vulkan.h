@@ -45,12 +45,15 @@ struct VulkanTexture
 	VkDeviceMemory TextureMemory;
 	VkImage TextureImage;
 
-	VkImageView TextureImageView;
-
 	uint64_t TextureFlags{};
 
 	llrm::AttachmentFormat TextureFormat{};
 	uint32_t Width = 0, Height = 0;
+};
+
+struct VulkanTextureView
+{
+	VkImageView ImageView{};
 };
 
 struct VulkanSwapChain
@@ -60,7 +63,8 @@ struct VulkanSwapChain
 	VkPresentModeKHR PresentMode;
 	VkExtent2D SwapChainExtent;
 
-	std::vector<VulkanTexture> Images;
+	std::vector<VulkanTexture>	   Images;
+	std::vector<VulkanTextureView> ImageViews;
 
 	int32_t CurrentFrame = 0;
 
@@ -205,7 +209,7 @@ struct VulkanFrameBuffer
 	uint32_t AttachmentWidth;
 	uint32_t AttachmentHeight;
 
-	std::vector<VulkanTexture*>    AllAttachments;
+	std::vector<VulkanTextureView*>    AllAttachments;
 
 	VkFramebuffer VulkanFbo;
 
