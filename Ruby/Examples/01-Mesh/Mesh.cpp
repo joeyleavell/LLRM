@@ -26,6 +26,11 @@ Ruby::SceneId CreateScene()
 	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -80.0f, -0.0f, 0.0f });
 	Ruby::AddObject(NewScene, DirLight);
 
+	Ruby::LightId Dir2 = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f, true);
+	Ruby::ObjectId DirLight2 = Ruby::CreateLightObject(Dir2, {}, { -130.0f, -0.0f, 0.0f });
+	Ruby::AddObject(NewScene, DirLight2);
+
+
 	return NewScene;
 }
 
@@ -68,8 +73,8 @@ int main()
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
 
 		Ruby::Camera Cam{};
-		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 100.0f);
-		Cam.mPosition.z = 0.0f;
+		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
+		Cam.mPosition.z = 20.0f;
 
 		Ruby::RenderScene(NewScene, glm::ivec2{Width, Height}, Cam, Swap);
 	}

@@ -348,14 +348,14 @@ namespace Ruby
 	{
 		Object Result;
 		Result.mType = ObjectType::Mesh;
-		Result.mId = GContext.mNextMeshId;
+		Result.mId = GContext.mNextObjectId;
 		Result.mReferenceId = Mesh.mId;
 		Result.mPosition = Position;
 		Result.mRotation = Rotation;
 
 		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
 
-		GContext.mNextMeshId++;
+		GContext.mNextObjectId++;
 		GContext.mObjects.emplace(Result.mId, Result);
 
 		return Result.mId;
@@ -591,7 +591,7 @@ namespace Ruby
 			llrm::TextureView ShadowMapTextureView = llrm::CreateTextureView(Res.mShadowMaps,
 				llrm::AspectFlags::DEPTH_ASPECT | llrm::AspectFlags::STENCIL_ASPECT,
 				llrm::TextureViewType::TYPE_2D_ARRAY,
-				0, Frustums);
+				Frustum, 1);
 
 			llrm::FrameBuffer ShadowMapFbo = llrm::CreateFrameBuffer({
 				1024, 1024,
@@ -675,6 +675,9 @@ glm::transpose(CamProj * CamView)
 			ShadowUniforms.mViewProjection = CreateDirectionalVPMatrix(Light.mRotation, CamView, CamProj);
 		}
 
+		// Transition shadow maps texture array to correct usage
+		llrm::TransitionTexture(DstCmd, Resources.mShadowMaps, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment, FrustumBase, 1);
+
 		// Update resources
 		llrm::UpdateUniformBuffer(Light.mObjectResources, 0, &ShadowUniforms, sizeof(ShadowUniforms));
 
@@ -686,14 +689,14 @@ glm::transpose(CamProj * CamView)
 		};
 
 		llrm::FrameBuffer FrustumFbo = Resources.mShadowMapFbos[FrustumBase];
-
+		 
 		llrm::BeginRenderGraph(DstCmd, GContext.mShadowMapRG, FrustumFbo, ClearValues);
 		{	
 			llrm::SetViewport(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
 			llrm::SetScissor(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
 
 			llrm::BindPipeline(DstCmd, GContext.mShadowMapPipe);
-
+			  
 			for (uint32_t Object : Scene.mObjects)
 			{
 				Ruby::Object& Obj = GetObject(Object);
@@ -775,11 +778,10 @@ glm::transpose(CamProj * CamView)
 
 					Lights.mNumDirLights++;
 
-					glm::mat4 View, Proj;
-					CalculateDirectionalLightMatrices(Obj.mRotation, CalculateViewFrustumBoundingBox(CamView, Camera.mProjection), View, Proj);
+					glm::mat4 ViewProj = glm::transpose(CreateDirectionalVPMatrix(Obj.mRotation, CamView, Camera.mProjection));
 
 					uint32_t BaseIndex = LightFrustums[Obj.mId] * 4;
-					glm::mat4 LightViewProj = glm::transpose(Proj * View);
+					glm::mat4 LightViewProj = ViewProj;
 					FrustumData[BaseIndex + 0] = LightViewProj[0];
 					FrustumData[BaseIndex + 1] = LightViewProj[1];
 					FrustumData[BaseIndex + 2] = LightViewProj[2];
@@ -825,7 +827,7 @@ glm::transpose(CamProj * CamView)
 		{
 
 			// Transition shadow maps texture array to correct usage
-			llrm::TransitionTexture(DstCmd, Resources.mShadowMaps, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment, 0, 10);
+			//llrm::TransitionTexture(DstCmd, Resources.mShadowMaps, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment, 0, 10);
 
 			// Render shadow maps
 			for (uint32_t Object : Scene.mObjects)
