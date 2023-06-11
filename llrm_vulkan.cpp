@@ -310,10 +310,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
 
 		//GLog->error(std::string("[vkError]: ") + CallbackData->pMessage + "\n" + TraceString);
 	}
-	else
-	{
-		std::cout << "[vkInfo]: " << CallbackData->pMessage << std::endl;
-	}
+//	else
+//	{
+//		std::cout << "[vkInfo]: " << CallbackData->pMessage << std::endl;
+//	}
 
 	return VK_FALSE;
 }
@@ -637,6 +637,20 @@ namespace llrm
 		Inner(VkCmd->CmdBuffer);
 	};
 
+	VkImageViewType AttachmentViewTypeToVk(TextureViewType Type)
+	{
+		if(Type == TextureViewType::TYPE_2D)
+		{
+			return VK_IMAGE_VIEW_TYPE_2D;
+		}
+		else if (Type == TextureViewType::TYPE_2D_ARRAY)
+		{
+			return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+		}
+
+		return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	}
+
 	VkFormat AttachmentFormatToVkFormat(AttachmentFormat Format)
 	{
 		//	assert((Format == AttachmentFormat::MatchBackBuffer && ReferencingSwap) || (Format != AttachmentFormat::MatchBackBuffer && !ReferencingSwap()));
@@ -655,6 +669,8 @@ namespace llrm
 			return VK_FORMAT_R32_SINT;
 		case AttachmentFormat::RGBA16F_Float:
 			return VK_FORMAT_R16G16B16A16_SFLOAT;
+		case AttachmentFormat::RGBA32F_Float:
+			return VK_FORMAT_R32G32B32A32_SFLOAT;
 		case AttachmentFormat::R8_UINT:
 			return VK_FORMAT_R8_UINT;
 		case AttachmentFormat::D24_UNORM_S8_UINT:
@@ -892,7 +908,14 @@ namespace llrm
 		});
 	}
 
-	void TransitionCmd(VkCommandBuffer Buf, VkImage Img, VkImageAspectFlags AspectFlags, AttachmentUsage Old, AttachmentUsage New)
+	void TransitionCmd(VkCommandBuffer Buf, 
+		VkImage Img, 
+		VkImageAspectFlags AspectFlags, 
+		AttachmentUsage Old, 
+		AttachmentUsage New, 
+		uint32_t BaseLayer,
+		uint32_t LayerCount
+	)
 	{
 		VkImageMemoryBarrier ImageMemBarrier{};
 		ImageMemBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -904,8 +927,8 @@ namespace llrm
 		ImageMemBarrier.subresourceRange.aspectMask = AspectFlags;
 		ImageMemBarrier.subresourceRange.baseMipLevel = 0;
 		ImageMemBarrier.subresourceRange.levelCount = 1;
-		ImageMemBarrier.subresourceRange.baseArrayLayer = 0;
-		ImageMemBarrier.subresourceRange.layerCount = 1;
+		ImageMemBarrier.subresourceRange.baseArrayLayer = BaseLayer;
+		ImageMemBarrier.subresourceRange.layerCount = LayerCount;
 
 		VkPipelineStageFlags SourceStage;
 		VkPipelineStageFlags DstStage;
@@ -992,7 +1015,7 @@ namespace llrm
 	}
 
 	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old,
-		AttachmentUsage New)
+		AttachmentUsage New, uint32_t BaseLayer, uint32_t LayerCount)
 	{
 		VulkanTexture* VkTexture = static_cast<VulkanTexture*>(Image);
 
@@ -1006,7 +1029,7 @@ namespace llrm
 			if (IsStencilFormat(VkTexture->TextureFormat))
 				Flags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
-			TransitionCmd(CmdBuffer, VkTexture->TextureImage, Flags, Old, New);
+			TransitionCmd(CmdBuffer, VkTexture->TextureImage, Flags, Old, New, BaseLayer, LayerCount);
 		});
 	}
 
@@ -2061,6 +2084,75 @@ namespace llrm
 		);
 	}
 
+	void WriteTexture(Texture Tex,
+		AttachmentUsage PreviousUsage, AttachmentUsage FinalUsage,
+		uint32_t Width, uint32_t Height,
+		uint32_t Layer,
+		uint64_t ImageSize, void* Data
+	)
+	{
+		VulkanTexture* Result = reinterpret_cast<VulkanTexture*>(Tex);
+
+		if(!Result->StagingBuffer)
+		{
+			CreateBuffer
+			(
+				ImageSize,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				Result->StagingBuffer, Result->StagingBufferMemory
+			);
+		}
+
+		void* MappedData;
+		vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+		{
+			std::memcpy(MappedData, Data, ImageSize);
+		}
+		vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
+
+		ImmediateSubmit([&](CommandBuffer Buf)
+		{
+			TransitionTexture(Buf, Result, PreviousUsage, AttachmentUsage::TransferDestination);
+		});
+
+		ImmediateSubmit([&](CommandBuffer Buf)
+		{
+			VkCmdBuffer(Buf, [&](VkCommandBuffer Buf)
+			{
+				VkBufferImageCopy ImageCopy{};
+				ImageCopy.bufferOffset = 0;
+				ImageCopy.bufferRowLength = 0;
+				ImageCopy.bufferImageHeight = 0;
+
+				ImageCopy.imageSubresource.aspectMask = IsColorFormat(Result->TextureFormat) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+				ImageCopy.imageSubresource.mipLevel = 0;
+				ImageCopy.imageSubresource.baseArrayLayer = Layer;
+				ImageCopy.imageSubresource.layerCount = 1;
+
+				ImageCopy.imageOffset = { 0, 0, 0 };
+				ImageCopy.imageExtent = { Width, Height, 1 };
+
+				// Copy buffer data to image
+				vkCmdCopyBufferToImage
+				(
+					Buf,
+					Result->StagingBuffer,
+					Result->TextureImage,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1,
+					&ImageCopy
+				);
+			});
+		});
+
+		// Transition image to be shader read optimal
+		ImmediateSubmit([&](CommandBuffer Buf)
+		{
+			TransitionTexture(Buf, Result, AttachmentUsage::TransferDestination, FinalUsage);
+		});
+	}
+
 	void ReadTexture(Texture Tex, uint32_t Attachment, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage)
 	{
 		vkDeviceWaitIdle(GVulkanContext.Device);
@@ -2359,7 +2451,7 @@ namespace llrm
 		Viewport.width = 1.0f;
 		Viewport.height = 1.0f;
 		Viewport.minDepth = 0.0f;
-		Viewport.maxDepth = 0.0f;
+		Viewport.maxDepth = 1.0f;
 
 		VkRect2D Scissor{};
 		Scissor.offset = { 0, 0 };
@@ -2746,7 +2838,7 @@ namespace llrm
 		return Result;
 	}
 
-	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t Flags, uint64_t ImageSize, void* Data)
+	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t Flags, uint32_t Layers, uint64_t ImageSize, void* Data)
 	{
 		VulkanTexture* Result = new VulkanTexture;
 
@@ -2756,7 +2848,7 @@ namespace llrm
 		Result->TextureFlags = Flags;
 
 		// Create staging buffer and write initial data to it
-		if(Flags & TEXTURE_USAGE_WRITE)
+		if(Flags & TEXTURE_USAGE_WRITE && Data)
 		{
 			CreateBuffer
 			(
@@ -2766,12 +2858,15 @@ namespace llrm
 				Result->StagingBuffer, Result->StagingBufferMemory
 			);
 
-			void* MappedData;
-			vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+			if(Data)
 			{
-				std::memcpy(MappedData, Data, ImageSize);
+				void* MappedData;
+				vkMapMemory(GVulkanContext.Device, Result->StagingBufferMemory, 0, ImageSize, 0, &MappedData);
+				{
+					std::memcpy(MappedData, Data, ImageSize);
+				}
+				vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
 			}
-			vkUnmapMemory(GVulkanContext.Device, Result->StagingBufferMemory);
 		}
 
 		VkImageCreateInfo ImageCreate{};
@@ -2781,7 +2876,7 @@ namespace llrm
 		ImageCreate.extent.height = Height;
 		ImageCreate.extent.depth = 1;
 		ImageCreate.mipLevels = 1;
-		ImageCreate.arrayLayers = 1;
+		ImageCreate.arrayLayers = Layers;
 		ImageCreate.format = AttachmentFormatToVkFormat(Result->TextureFormat);
 		ImageCreate.tiling = VK_IMAGE_TILING_OPTIMAL;
 		ImageCreate.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -2828,7 +2923,7 @@ namespace llrm
 		vkBindImageMemory(GVulkanContext.Device, Result->TextureImage, Result->TextureMemory, 0);
 
 		// Write texture data
-		if(Flags & TEXTURE_USAGE_WRITE)
+		if(Flags & TEXTURE_USAGE_WRITE && Data)
 		{
 			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
@@ -2848,7 +2943,7 @@ namespace llrm
 					ImageCopy.imageSubresource.aspectMask = IsColorFormat(Format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
 					ImageCopy.imageSubresource.mipLevel = 0;
 					ImageCopy.imageSubresource.baseArrayLayer = 0;
-					ImageCopy.imageSubresource.layerCount = 1;
+					ImageCopy.imageSubresource.layerCount = Layers;
 
 					ImageCopy.imageOffset = { 0, 0, 0 };
 					ImageCopy.imageExtent = { Width, Height, 1 };
@@ -2877,7 +2972,7 @@ namespace llrm
 			// Transition image to be an attachment
 			ImmediateSubmitAndWait([&](CommandBuffer Buf)
 			{
-				TransitionTexture(Buf, Result, AttachmentUsage::Undefined, InitialUsage);
+				TransitionTexture(Buf, Result, AttachmentUsage::Undefined, InitialUsage, 0, Layers);
 			});
 		}
 
@@ -2886,7 +2981,7 @@ namespace llrm
 		return Result;
 	}
 
-	TextureView CreateTextureView(Texture Image, uint8_t Flags)
+	TextureView CreateTextureView(Texture Image, uint8_t Flags, TextureViewType ViewType, uint32_t BaseArrayLayer, uint32_t LayerCount)
 	{
 		VulkanTexture* Texture = reinterpret_cast<VulkanTexture*>(Image);
 		VulkanTextureView* VkView = new VulkanTextureView{};
@@ -2896,7 +2991,7 @@ namespace llrm
 		VkImageViewCreateInfo ViewInfo{};
 		ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		ViewInfo.image = Texture->TextureImage;
-		ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		ViewInfo.viewType = AttachmentViewTypeToVk(ViewType);
 		ViewInfo.format = AttachmentFormatToVkFormat(Texture->TextureFormat);
 
 		if (Flags & COLOR_ASPECT)
@@ -2908,8 +3003,8 @@ namespace llrm
 
 		ViewInfo.subresourceRange.baseMipLevel = 0;
 		ViewInfo.subresourceRange.levelCount = 1;
-		ViewInfo.subresourceRange.baseArrayLayer = 0;
-		ViewInfo.subresourceRange.layerCount = 1;
+		ViewInfo.subresourceRange.baseArrayLayer = BaseArrayLayer;
+		ViewInfo.subresourceRange.layerCount = LayerCount;
 
 		if (vkCreateImageView(GVulkanContext.Device, &ViewInfo, nullptr, &VkView->ImageView) != VK_SUCCESS)
 		{

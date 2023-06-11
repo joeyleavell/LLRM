@@ -48,11 +48,20 @@ namespace Ruby
 		llrm::FrameBuffer	 mDeferredGeoFB;
 		llrm::Pipeline		 mDeferredGeoPipe;
 
+		// Deferred shading stage
 		llrm::RenderGraph	 mDeferredShadeRG;
 		llrm::FrameBuffer	 mDeferredShadeFB;
 		llrm::Pipeline		 mDeferredShadePipe;
 		llrm::ResourceSet	 mDeferredShadeRes;
 
+		// Shadow map resources
+		llrm::Texture				   mShadowMaps;
+		llrm::TextureView			   mShadowMapsResourceView;
+		std::vector<llrm::TextureView> mShadowMapAttachmentViews;
+		std::vector<llrm::FrameBuffer> mShadowMapFbos;
+
+		llrm::Texture		 mShadowMapFrustums;
+		llrm::TextureView	 mShadowMapFrustumsView;
 	};
 
 	struct Camera
@@ -88,10 +97,10 @@ namespace Ruby
 		llrm::ResourceSet mObjectResources;
 
 		// For light shadow maps
-		llrm::Texture mShadowDepthAttachment;
-		llrm::TextureView mShadowDepthAttachmentRenderPassView;
-		llrm::TextureView mShadowDepthAttachmentResourceView;
-		llrm::FrameBuffer mShadowFbo;
+		//llrm::Texture mShadowDepthAttachment;
+		//llrm::TextureView mShadowDepthAttachmentRenderPassView;
+		//llrm::TextureView mShadowDepthAttachmentResourceView;
+		//llrm::FrameBuffer mShadowFbo;
 	};
 
 	class Scene
@@ -114,6 +123,7 @@ namespace Ruby
 		LightType mType;
 		glm::vec3 mColor;
 		float	  mIntensity;
+		bool	  mCastShadows;
 	};
 
 	struct RubyContext
@@ -185,7 +195,7 @@ namespace Ruby
 	void DestroySwapChain(const SwapChain& Swap);
 
 	// Light
-	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity);
+	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows);
 	void DestroyLight(LightId Light);
 	Light& GetLight(LightId Light);
 

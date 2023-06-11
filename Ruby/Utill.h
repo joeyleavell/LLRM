@@ -15,7 +15,7 @@ namespace Ruby
 
     inline glm::mat4 BuildPerspective(float FieldOfView, float AspectRatio, float NearClip, float FarClip)
     {
-        return glm::perspective(glm::radians(FieldOfView), AspectRatio, NearClip, FarClip);
+        return glm::perspectiveRH_ZO(glm::radians(FieldOfView), AspectRatio, NearClip, FarClip);
     }
 
     inline glm::mat4 BuildTransform(glm::vec3 Position, glm::vec3 Rotation, glm::vec3 Scale)

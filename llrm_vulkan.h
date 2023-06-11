@@ -39,11 +39,11 @@ struct VulkanSampler
 struct VulkanTexture
 {
 	// This staging buffer is used if the texture can be uploaded to from the CPU
-	VkBuffer StagingBuffer;
-	VkDeviceMemory StagingBufferMemory;
+	VkBuffer StagingBuffer{};
+	VkDeviceMemory StagingBufferMemory{};
 
-	VkDeviceMemory TextureMemory;
-	VkImage TextureImage;
+	VkDeviceMemory TextureMemory{};
+	VkImage TextureImage{};
 
 	uint64_t TextureFlags{};
 

@@ -38,6 +38,12 @@ namespace llrm
 		STENCIL_ASPECT = 4,
 	};
 
+	enum class TextureViewType : uint8_t
+	{
+		TYPE_2D,
+		TYPE_2D_ARRAY
+	};
+
 	enum class AttachmentFormat
 	{
 		B8G8R8A8_UNORM,
@@ -47,6 +53,7 @@ namespace llrm
 		R32_FLOAT,
 		R8_UINT,
 		RGBA16F_Float,
+		RGBA32F_Float,
 		D24_UNORM_S8_UINT
 	};
 
@@ -366,8 +373,8 @@ namespace llrm
 	IndexBuffer CreateIndexBuffer(uint64_t Size, const void* Data = nullptr);
 	CommandBuffer CreateCommandBuffer(bool bOneTimeUse = false);
 	ResourceSet CreateResourceSet(const ResourceSetCreateInfo& CreateInfo);
-	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint64_t ImageSize = 0, void* Data = nullptr);
-	TextureView CreateTextureView(Texture Image, uint8_t Flags);
+	Texture CreateTexture(AttachmentFormat Format, AttachmentUsage InitialUsage, uint32_t Width, uint32_t Height, uint64_t TextureFlags, uint32_t Layers, uint64_t ImageSize = 0, void* Data = nullptr);
+	TextureView CreateTextureView(Texture Image, uint8_t Flags, TextureViewType ViewType = TextureViewType::TYPE_2D, uint32_t BaseArrayLayer = 0, uint32_t LayerCount = 1);
 	Sampler CreateSampler(const SamplerCreateInfo& CreateInfo);
 
 	// Destroy primitives
@@ -411,6 +418,13 @@ namespace llrm
 	void UpdateSamplerResource(ResourceSet Resources, Sampler Samp, uint32_t Binding);
 
 	void ReadTexture(Texture Tex, void* Dst, uint64_t BufferSize, AttachmentUsage PreviousUsage);
+	void WriteTexture(Texture Tex, 
+		AttachmentUsage PreviousUsage, AttachmentUsage FinalUsage, 
+		uint32_t Width, uint32_t Height, 
+		uint32_t Layer, 
+		uint64_t ImageSize = 0, void* Data = nullptr
+	);
+
 	AttachmentFormat GetTextureFormat(Texture Tex);
 
 	// Command buffer operations
@@ -418,7 +432,7 @@ namespace llrm
 	void Reset(CommandBuffer Buf);
 	void Begin(CommandBuffer Buf);
 	void End(CommandBuffer Buf);
-	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old, AttachmentUsage New);
+	void TransitionTexture(CommandBuffer Buf, Texture Image, AttachmentUsage Old, AttachmentUsage New, uint32_t BaseLayer = 0, uint32_t LayerCount = 1);
 	void BeginRenderGraph(CommandBuffer Buf, RenderGraph Graph, FrameBuffer Target, std::vector<ClearValue> ClearValues = {});
 	void EndRenderGraph(CommandBuffer Buf);
 	void BindPipeline(CommandBuffer Buf, Pipeline PipelineObject);

@@ -24,7 +24,9 @@ struct DirectionalLight
 {
 	alignas(16) glm::vec3 mDirection;
 	alignas(16) glm::vec3 mColor;
-	alignas(4) float	  mIntensity;
+	alignas(4)	float	  mIntensity;
+	alignas(4)  bool	  mCastShadows;
+	alignas(4)  uint32_t  mFrustumBase;
 };
 
 struct SpotLight

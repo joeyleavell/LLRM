@@ -15,12 +15,86 @@ namespace Ruby
 	RenderingAPI GAPI = RenderingAPI::Vulkan;
 #endif
 
-	glm::mat4 CreateDirectionalVPMatrix(glm::vec3 Rotation)
-	{
-		glm::mat4 Proj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 100.0f);
-		glm::mat4 View = BuildTransform({ 5.0, 5.0, 0.0f }, Rotation, { 1.0f, 1.0f, 1.0f });
 
-		return View * Proj;
+	struct BoundingBox {
+		glm::vec3 min;
+		glm::vec3 max;
+	};
+
+	BoundingBox CalculateViewFrustumBoundingBox(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix) {
+
+		// Starts in NDC
+		std::vector<glm::vec4> Corners = {
+			{-1.0f, -1.0f, -1.0f, 1.0f},
+			{-1.0f, 1.0f, -1.0f, 1.0f},
+			{1.0f, 1.0f, -1.0f, 1.0f},
+			{1.0f, -1.0f, -1.0f, 1.0f},
+			{-1.0f, -1.0f, 1.0f, 1.0f},
+			{-1.0f, 1.0f, 1.0f, 1.0f},
+			{1.0f, 1.0f, 1.0f, 1.0f},
+			{1.0f, -1.0f, 1.0f, 1.0f},
+		};
+
+		// Clip Space -> View space
+		glm::mat4 InvViewProjection = glm::inverse(projectionMatrix * viewMatrix);
+
+		BoundingBox Result = {
+			glm::vec3(std::numeric_limits<float>::max()),
+			glm::vec3(std::numeric_limits<float>::lowest()),
+		};
+
+		for(uint32_t Index = 0; Index < 8; Index++)
+		{
+			glm::vec4 Corner = InvViewProjection * Corners[Index];
+			Corner /= Corner.w;
+
+			// Find min/max
+			Result.max = glm::max(Result.max, glm::vec3(Corner));
+			Result.min = glm::min(Result.min, glm::vec3(Corner));
+		}
+
+		return Result;
+
+	}
+
+	void CalculateDirectionalLightMatrices(const glm::vec3& LightRotation, const BoundingBox& boundingBox, glm::mat4& viewMatrix, glm::mat4& projectionMatrix)
+	{
+		// Calculate the center point of the bounding box
+		glm::vec3 center = (boundingBox.min + boundingBox.max) * 0.5f;
+
+		// Define the distance from the center to the bounding box extents
+		float distance = glm::distance(boundingBox.min, boundingBox.max) * 0.5f;
+
+		// Set the up direction for the light
+		glm::vec3 up(0.0f, 1.0f, 0.0f);
+
+		// Calculate the view matrix for the directional light
+		glm::mat4 RotMat = BuildTransform(glm::vec3(0.0f), LightRotation, glm::vec3(1.0f));
+		glm::vec4 Forward(0.0f, 0.0f, -1.0f, 0.0f);
+		glm::vec4 LightDirection = RotMat * Forward;
+		viewMatrix = glm::inverse(BuildTransform(center - glm::vec3(LightDirection) * distance, LightRotation, glm::vec3(1.0f)));
+
+		// Calculate the dimensions of the orthographic frustum
+		float width = boundingBox.max.x - boundingBox.min.x;
+		float height = boundingBox.max.y - boundingBox.min.y;
+		float depth = glm::distance(boundingBox.min, boundingBox.max);
+
+		// Calculate the projection matrix for the directional light using an orthographic frustum
+		projectionMatrix = glm::orthoRH_ZO(-width * 0.5f, width * 0.5f, -height * 0.5f, height * 0.5f, 0.0f, depth);
+	}
+
+	glm::mat4 CreateDirectionalVPMatrix(glm::vec3 Rotation, const glm::mat4& camView, const glm::mat4& camProj)
+	{
+		//glm::mat4 Proj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 100.0f);
+		//glm::mat4 View = BuildTransform({ 5.0, 5.0, 0.0f }, Rotation, { 1.0f, 1.0f, 1.0f });
+
+		glm::mat4 Proj;
+		glm::mat4 View;
+
+		BoundingBox FrustumBounds = CalculateViewFrustumBoundingBox(camView, camProj);
+		CalculateDirectionalLightMatrices(Rotation, FrustumBounds, View, Proj);
+
+		return glm::transpose(Proj * View);
 	}
 
 	void UpdateSwapChain(llrm::SwapChain Swap, llrm::RenderGraph Graph, std::vector<llrm::FrameBuffer>& Fbos, std::vector<llrm::CommandBuffer>& CmdBuffers)
@@ -111,7 +185,10 @@ namespace Ruby
 
 		NewContext.mLightsResourceLayout = llrm::CreateResourceLayout({
 			{{0, llrm::ShaderStage::Fragment, sizeof(SceneLights), 1}},
-			{{1, llrm::ShaderStage::Fragment, 1}},
+			{
+				{1, llrm::ShaderStage::Fragment, 1}, // Shadow map texture array
+				{2, llrm::ShaderStage::Fragment, 1} // Shadow map frustum data texture
+			},
 			{}
 		});
 
@@ -213,7 +290,7 @@ namespace Ruby
 		llrm::DestroySurface(Swap.mSurface);
 	}
 
-	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity)
+	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows)
 	{
 		Light Result;
 
@@ -221,6 +298,7 @@ namespace Ruby
 		Result.mType = Type;
 		Result.mColor = Color;
 		Result.mIntensity = Intensity;
+		Result.mCastShadows = CastShadows;
 
 		GContext.mNextLightId++;
 		GContext.mLights.emplace(Result.mId, Result);
@@ -295,16 +373,16 @@ namespace Ruby
 		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
 
 		// Create shadow map
-		Result.mShadowDepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
+		/*Result.mShadowDepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
 			llrm::AttachmentUsage::ShaderRead, 1024, 1024, llrm::TEXTURE_USAGE_RT | llrm::TEXTURE_USAGE_SAMPLE);
 		Result.mShadowDepthAttachmentRenderPassView = llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT | llrm::STENCIL_ASPECT);
-		Result.mShadowDepthAttachmentResourceView	= llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT);
+		Result.mShadowDepthAttachmentResourceView	= llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT);*/
 
-		Result.mShadowFbo = llrm::CreateFrameBuffer({
+		/*Result.mShadowFbo = llrm::CreateFrameBuffer({
 			1024, 1024,
 			{Result.mShadowDepthAttachmentRenderPassView},
 			GContext.mShadowMapRG
-		});
+		});*/
 
 		GContext.mNextObjectId++;
 		GContext.mObjects.emplace(Result.mId, Result);
@@ -362,12 +440,12 @@ namespace Ruby
 	FrameBuffer CreateFrameBuffer(uint32_t Width, uint32_t Height, bool DepthAttachment)
 	{
 		FrameBuffer NewBuffer{};
-		NewBuffer.ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, llrm::AttachmentUsage::ColorAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
+		NewBuffer.ColorAttachment = llrm::CreateTexture(llrm::AttachmentFormat::B8G8R8A8_SRGB, llrm::AttachmentUsage::ColorAttachment, Width, Height, llrm::TEXTURE_USAGE_RT, 1);
 		NewBuffer.ColorAttachmentView = llrm::CreateTextureView(NewBuffer.ColorAttachment, llrm::AspectFlags::COLOR_ASPECT);
 
 		if(DepthAttachment)
 		{
-			NewBuffer.DepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Width, Height, llrm::TEXTURE_USAGE_RT);
+			NewBuffer.DepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Width, Height, llrm::TEXTURE_USAGE_RT, 1);
 			NewBuffer.DepthAttachmentView = llrm::CreateTextureView(NewBuffer.DepthAttachment, llrm::AspectFlags::DEPTH_ASPECT);
 		}
 
@@ -415,9 +493,9 @@ namespace Ruby
 	void CreateDeferredResources(SceneResources& Res, glm::uvec2 Size)
 	{
 		// Create textures
-		Res.mDeferredAlbedo   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
-		Res.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
-		Res.mDeferredNormal   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		Res.mDeferredAlbedo   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Res.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Res.mDeferredNormal   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
 		Res.mDeferredAlbedoView = llrm::CreateTextureView(Res.mDeferredAlbedo, llrm::AspectFlags::COLOR_ASPECT);
 		Res.mDeferredPositionView = llrm::CreateTextureView(Res.mDeferredPosition, llrm::AspectFlags::COLOR_ASPECT);
 		Res.mDeferredNormalView = llrm::CreateTextureView(Res.mDeferredNormal, llrm::AspectFlags::COLOR_ASPECT);
@@ -483,6 +561,50 @@ namespace Ruby
 		});
 	}
 
+	void CreateShadowResources(SceneResources& Res)
+	{
+		// Num frustums * 4
+		uint32_t Frustums = 10;
+		uint32_t Size = Frustums * 4;
+		Res.mShadowMapFrustums = llrm::CreateTexture(llrm::AttachmentFormat::RGBA32F_Float, 
+			llrm::AttachmentUsage::ShaderRead, 
+			Size, 1, 
+			llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_WRITE,
+			1
+		);
+		Res.mShadowMapFrustumsView = llrm::CreateTextureView(Res.mShadowMapFrustums, llrm::AspectFlags::COLOR_ASPECT);
+
+		Res.mShadowMaps = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
+			llrm::AttachmentUsage::ShaderRead, 
+			1024, 1024,
+			llrm::TEXTURE_USAGE_RT | llrm::TEXTURE_USAGE_SAMPLE,
+			Frustums
+		);
+
+		Res.mShadowMapsResourceView = llrm::CreateTextureView(Res.mShadowMaps,
+			llrm::AspectFlags::DEPTH_ASPECT,
+			llrm::TextureViewType::TYPE_2D_ARRAY,
+			0, Frustums);
+
+		for(uint32_t Frustum = 0; Frustum < Frustums; Frustum++)
+		{
+			llrm::TextureView ShadowMapTextureView = llrm::CreateTextureView(Res.mShadowMaps,
+				llrm::AspectFlags::DEPTH_ASPECT | llrm::AspectFlags::STENCIL_ASPECT,
+				llrm::TextureViewType::TYPE_2D_ARRAY,
+				0, Frustums);
+
+			llrm::FrameBuffer ShadowMapFbo = llrm::CreateFrameBuffer({
+				1024, 1024,
+				{ShadowMapTextureView},
+				GContext.mShadowMapRG
+			});
+
+			Res.mShadowMapAttachmentViews.push_back(ShadowMapTextureView);
+			Res.mShadowMapFbos.push_back(ShadowMapFbo);
+		}
+
+	}
+
 	void CreateSamplers(SceneResources& Res)
 	{
 		Res.mNearestSampler = llrm::CreateSampler({ llrm::FilterType::NEAREST, llrm::FilterType::NEAREST });
@@ -512,33 +634,37 @@ namespace Ruby
 		SceneResources NewResources{};
 
 		// Create color texture
-		NewResources.mHDRColor	   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT);
+		NewResources.mHDRColor	   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
 		NewResources.mHDRColorView = llrm::CreateTextureView(NewResources.mHDRColor, llrm::AspectFlags::COLOR_ASPECT);
 
 		// Create depth buffer
-		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT);
+		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT, 1);
 		NewResources.mDepthView = llrm::CreateTextureView(NewResources.mDepth, llrm::AspectFlags::DEPTH_ASPECT);
 
 		CreateSamplers(NewResources);
 		CreateFullScreenQuad(NewResources);
 		CreateResources(NewResources);
 		CreateDeferredResources(NewResources, Size);
+		CreateShadowResources(NewResources);
 
 		GContext.mResources.emplace(Scene.mId, NewResources);
 	}
 
-	void UpdateCameraUniforms(llrm::ResourceSet DstRes, const Camera& Camera)
+	void UpdateCameraUniforms(llrm::ResourceSet DstRes, const glm::mat4 CamView, const glm::mat4 CamProj)
 	{
-		glm::mat4 ViewMatrix = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
-			
 		CameraVertexUniforms CamUniforms{
-glm::transpose(ViewMatrix * Camera.mProjection)
+glm::transpose(CamProj * CamView)
 		};
 		llrm::UpdateUniformBuffer(DstRes, 0, &CamUniforms, sizeof(CamUniforms));
 	}
 
-	void RenderShadowMap(const Scene& Scene, const llrm::CommandBuffer& DstCmd,
-		glm::uvec2 ShadowMapSize, const Object& Light
+	void RenderShadowMap(const Scene& Scene, 
+		const SceneResources& Resources,
+		uint32_t FrustumBase,
+		const llrm::CommandBuffer& DstCmd,
+		glm::uvec2 ShadowMapSize, 
+		const Object& Light,
+		const glm::mat4 CamView, const glm::mat4& CamProj
 	)
 	{
 		Ruby::Light LightData = Ruby::GetLight(Light.mReferenceId);
@@ -546,20 +672,22 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 		ShadowLightUniforms ShadowUniforms;
 		if(LightData.mType == LightType::Directional)
 		{
-			ShadowUniforms.mViewProjection = CreateDirectionalVPMatrix(Light.mRotation);
+			ShadowUniforms.mViewProjection = CreateDirectionalVPMatrix(Light.mRotation, CamView, CamProj);
 		}
 
 		// Update resources
 		llrm::UpdateUniformBuffer(Light.mObjectResources, 0, &ShadowUniforms, sizeof(ShadowUniforms));
 
-		// Transition depth attachment to correct usage
-		llrm::TransitionTexture(DstCmd, Light.mShadowDepthAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment);
+		// TODO: Need to handle multiple light cascades/frustums
 
 		// Depth render
 		std::vector<llrm::ClearValue> ClearValues = {
 			{llrm::ClearType::Float, 1.0f}
 		};
-		llrm::BeginRenderGraph(DstCmd, GContext.mShadowMapRG, Light.mShadowFbo, ClearValues);
+
+		llrm::FrameBuffer FrustumFbo = Resources.mShadowMapFbos[FrustumBase];
+
+		llrm::BeginRenderGraph(DstCmd, GContext.mShadowMapRG, FrustumFbo, ClearValues);
 		{	
 			llrm::SetViewport(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
 			llrm::SetScissor(DstCmd, 0, 0, ShadowMapSize.x, ShadowMapSize.y);
@@ -600,12 +728,19 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 
 		SceneResources& Resources = GContext.mResources[Scene.mId];
 
-		UpdateCameraUniforms(Resources.mSceneResources, Camera);
+		glm::mat4 CamView = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
+		UpdateCameraUniforms(Resources.mSceneResources, CamView, Camera.mProjection);
 
 		// Accumulate lights for this frame
 		SceneLights Lights;
 
 		// Create model uniforms
+		constexpr uint32_t MAX_FRUSTUMS = 10;
+		glm::vec4 FrustumData[MAX_FRUSTUMS * 4];
+		memset(FrustumData, 0, sizeof(FrustumData));
+
+		uint32_t ShadowMapFrustum = 0;
+		std::unordered_map<uint32_t, uint32_t> LightFrustums; // LightID -> FrustumIndex
 		for (uint32_t Object : Scene.mObjects)
 		{
 			Ruby::Object& Obj = GetObject(Object);
@@ -621,6 +756,11 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			if(IsLightObject(Obj.mId))
 			{
 				const Light& Light = GContext.mLights[Obj.mReferenceId];
+				if(Light.mCastShadows)
+				{
+					LightFrustums[Obj.mId] = ShadowMapFrustum;
+					ShadowMapFrustum++;
+				}
 				if(Light.mType == LightType::Directional)
 				{
 					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
@@ -628,7 +768,22 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 					Lights.mDirectionalLights[Lights.mNumDirLights].mColor = Light.mColor;
 					Lights.mDirectionalLights[Lights.mNumDirLights].mDirection = { Direction.x, Direction.y, Direction.z };
 					Lights.mDirectionalLights[Lights.mNumDirLights].mIntensity = Light.mIntensity;
+
+					Lights.mDirectionalLights[Lights.mNumDirLights].mCastShadows = Light.mCastShadows;
+					if(Light.mCastShadows)
+						Lights.mDirectionalLights[Lights.mNumDirLights].mFrustumBase = LightFrustums[Obj.mId];
+
 					Lights.mNumDirLights++;
+
+					glm::mat4 View, Proj;
+					CalculateDirectionalLightMatrices(Obj.mRotation, CalculateViewFrustumBoundingBox(CamView, Camera.mProjection), View, Proj);
+
+					uint32_t BaseIndex = LightFrustums[Obj.mId] * 4;
+					glm::mat4 LightViewProj = glm::transpose(Proj * View);
+					FrustumData[BaseIndex + 0] = LightViewProj[0];
+					FrustumData[BaseIndex + 1] = LightViewProj[1];
+					FrustumData[BaseIndex + 2] = LightViewProj[2];
+					FrustumData[BaseIndex + 3] = LightViewProj[3];
 				}
 				else if(Light.mType == LightType::Spot)
 				{
@@ -643,20 +798,17 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 			}
 		}
 
-		// Gather shadow maps
-		std::vector<llrm::TextureView> ShadowMaps;
-		for (uint32_t Object : Scene.mObjects)
-		{
-			Ruby::Object& Obj = GetObject(Object);
-			if (IsLightObject(Obj.mId))
-			{
-				ShadowMaps.push_back(Obj.mShadowDepthAttachmentResourceView);
-			}
-		}
+		// Update frustums data texture
+		llrm::WriteTexture(Resources.mShadowMapFrustums,
+			llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
+			MAX_FRUSTUMS * 4, 1, 0,
+			sizeof(FrustumData), FrustumData
+		);
 
 		// Update lights
 		llrm::UpdateUniformBuffer(Resources.mLightResources, 0, &Lights, sizeof(Lights));
-		llrm::UpdateTextureResource(Resources.mLightResources, ShadowMaps, 1);
+		llrm::UpdateTextureResource(Resources.mLightResources, {Resources.mShadowMapsResourceView}, 1);
+		llrm::UpdateTextureResource(Resources.mLightResources, { Resources.mShadowMapFrustumsView }, 2);
 
 		// Update tonemap inputs
 		llrm::UpdateSamplerResource(DstResources, Resources.mNearestSampler, 0);
@@ -672,13 +824,31 @@ glm::transpose(ViewMatrix * Camera.mProjection)
 		llrm::Begin(DstCmd);
 		{
 
+			// Transition shadow maps texture array to correct usage
+			llrm::TransitionTexture(DstCmd, Resources.mShadowMaps, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment, 0, 10);
+
 			// Render shadow maps
 			for (uint32_t Object : Scene.mObjects)
 			{
 				Ruby::Object& Obj = GetObject(Object);
+
 				if (IsLightObject(Obj.mId))
 				{
-					RenderShadowMap(Scene, DstCmd, { 1024, 1024 }, Obj);
+					Light& Light = GetLight(Obj.mReferenceId);
+					if(Light.mCastShadows)
+					{
+						uint32_t BaseFrustum = LightFrustums[Obj.mId];
+
+						RenderShadowMap(Scene,
+							Resources,
+							BaseFrustum,
+							DstCmd,
+							{ 1024, 1024 },
+							Obj,
+							CamView,
+							Camera.mProjection
+						);
+					}
 				}
 			}
 			

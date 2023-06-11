@@ -22,8 +22,8 @@ Ruby::SceneId CreateScene()
 	Ruby::AddObject(NewScene, FloorObj);
 
 	// Create directional light facing (0.0, 0.0, -1.0)
-	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f);
-	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -20.0f, 0.0f, 0.0f });
+	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f, true);
+	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -80.0f, -0.0f, 0.0f });
 	Ruby::AddObject(NewScene, DirLight);
 
 	return NewScene;
@@ -69,6 +69,7 @@ int main()
 
 		Ruby::Camera Cam{};
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 100.0f);
+		Cam.mPosition.z = 0.0f;
 
 		Ruby::RenderScene(NewScene, glm::ivec2{Width, Height}, Cam, Swap);
 	}
