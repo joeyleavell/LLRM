@@ -270,7 +270,7 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
 
     // Translate intermediate representation to SpirV
     glslang::SpvOptions Opts;
-    Opts.disableOptimizer = true;
+    Opts.disableOptimizer = false;
     Opts.validate = true;
     Opts.stripDebugInfo = false;
     Opts.optimizeSize = false;

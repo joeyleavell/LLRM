@@ -522,23 +522,23 @@ namespace llrm
 		// Give ImGui an oversized descriptor pool
 		VkDescriptorPoolSize PoolSizes[] =
 		{
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 10000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 10000 },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 10000 }
 		};
 
 		// Create primary descriptor pool
 		VkDescriptorPoolCreateInfo DscPoolCreateInfo{};
 		DscPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		DscPoolCreateInfo.maxSets = 1000;
+		DscPoolCreateInfo.maxSets = 10000;
 		DscPoolCreateInfo.poolSizeCount = static_cast<uint32_t>(std::size(PoolSizes));
 		DscPoolCreateInfo.pPoolSizes = PoolSizes;
 		DscPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -598,6 +598,22 @@ namespace llrm
 	void SetContext(Context Context)
 	{
 		GVulkanContext = *static_cast<VulkanContext*>(Context);
+	}
+
+	Caps GetCaps()
+	{
+		Caps Result;
+		if(GVulkanContext.PhysicalDevice)
+		{
+			VkPhysicalDeviceProperties Props;
+			vkGetPhysicalDeviceProperties(GVulkanContext.PhysicalDevice, &Props);
+			VkPhysicalDeviceLimits& Limits = Props.limits;
+
+			Result.MaxImageArrayLayers = Limits.maxImageArrayLayers;
+			Result.MaxTextureSize = Limits.maxImageDimension2D;
+		}
+
+		return Result;
 	}
 
 	Surface CreateSurface(GLFWwindow* Window)
@@ -2471,7 +2487,12 @@ namespace llrm
 		Rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		Rasterizer.lineWidth = 1.0f;
 		Rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		if(CreateInfo.Cull == CullMode::Front)
+			Rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+
 		Rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // Reverse this from the usual CLOCKWISE because we flip the viewport
+		if(CreateInfo.Winding == VertexWinding::Clockwise)
+			Rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE; // Reverse this from the usual CLOCKWISE because we flip the viewport
 		Rasterizer.depthBiasEnable = VK_FALSE;
 		Rasterizer.depthBiasConstantFactor = 0.0f;
 		Rasterizer.depthBiasClamp = 0.0f;

@@ -17,8 +17,8 @@ struct ShadowLightUniforms
 	glm::mat4 mViewProjection;
 };
 
-#define MAX_DIR_LIGHTS 1
-#define MAX_SPOT_LIGHTS 10
+#define MAX_DIR_LIGHTS 1000
+#define MAX_SPOT_LIGHTS 1000
 
 struct DirectionalLight
 {
@@ -39,8 +39,5 @@ struct SpotLight
 
 struct SceneLights
 {
-	alignas(16) DirectionalLight mDirectionalLights[MAX_DIR_LIGHTS];
-	alignas(16) SpotLight		 mSpotLights[MAX_SPOT_LIGHTS];
-	alignas(4) uint32_t			 mNumDirLights = 0;
-	alignas(4) uint32_t			 mNumSpotLights = 0;
+
 };

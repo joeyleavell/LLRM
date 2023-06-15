@@ -182,6 +182,18 @@ namespace llrm
 		Clamp
 	};
 
+	enum class VertexWinding
+	{
+		Clockwise,
+		CounterClockwise
+	};
+
+	enum class CullMode
+	{
+		Front,
+		Back
+	};
+
 	struct PipelineDepthStencilSettings
 	{
 		bool bEnableDepthTest = false;
@@ -205,6 +217,9 @@ namespace llrm
 		PipelineDepthStencilSettings DepthStencil;
 
 		uint32_t PassIndex = 0;
+
+		VertexWinding Winding = VertexWinding::CounterClockwise;
+		CullMode Cull = CullMode::Back;
 	};
 
 	struct RenderGraphAttachmentDescription
@@ -304,6 +319,13 @@ namespace llrm
 		WrapMode   WWrapMode = WrapMode::Clamp;
 	};
 
+	struct Caps
+	{
+		uint32_t MaxImageArrayLayers{};
+		uint32_t MaxTextureSize{};
+
+	};
+
 	inline bool IsDepthFormat(AttachmentFormat Format)
 	{
 		return Format == AttachmentFormat::D24_UNORM_S8_UINT;
@@ -332,6 +354,9 @@ namespace llrm
 	Context CreateContext();
 	void DestroyContext(llrm::Context Context);
 	void SetContext(llrm::Context Context);
+
+	// Get capabilities
+	Caps GetCaps();
 
 	/*
 	 * Creates a surface for a particular window.

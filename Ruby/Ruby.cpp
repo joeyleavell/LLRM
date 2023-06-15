@@ -140,7 +140,9 @@ namespace Ruby
 			llrm::PipelineRenderPrimitive::TRIANGLES,
 			{{false}},
 			{true},
-			0
+			0,
+			llrm::VertexWinding::CounterClockwise,
+			llrm::CullMode::Front
 		});
 	}
 
@@ -184,8 +186,9 @@ namespace Ruby
 		}, {} });
 
 		NewContext.mLightsResourceLayout = llrm::CreateResourceLayout({
-			{{0, llrm::ShaderStage::Fragment, sizeof(SceneLights), 1}},
+			{},
 			{
+				{0, llrm::ShaderStage::Fragment, 1}, // Light data texture
 				{1, llrm::ShaderStage::Fragment, 1}, // Shadow map texture array
 				{2, llrm::ShaderStage::Fragment, 1} // Shadow map frustum data texture
 			},
@@ -561,10 +564,18 @@ namespace Ruby
 		});
 	}
 
+	void CreateLightDataResources(SceneResources& Res)
+	{
+		uint32_t MaxSize = llrm::GetCaps().MaxTextureSize;
+		Res.mLightDataTexture = llrm::CreateTexture(llrm::AttachmentFormat::RGBA32F_Float, llrm::AttachmentUsage::ShaderRead,
+			MaxSize, 1,
+			llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_WRITE, 1);
+		Res.mLightDataTextureView = llrm::CreateTextureView(Res.mLightDataTexture, llrm::AspectFlags::COLOR_ASPECT, llrm::TextureViewType::TYPE_2D);
+	}
+
 	void CreateShadowResources(SceneResources& Res)
 	{
-		// Num frustums * 4
-		uint32_t Frustums = 10;
+		uint32_t Frustums = llrm::GetCaps().MaxImageArrayLayers;
 		uint32_t Size = Frustums * 4;
 		Res.mShadowMapFrustums = llrm::CreateTexture(llrm::AttachmentFormat::RGBA32F_Float, 
 			llrm::AttachmentUsage::ShaderRead, 
@@ -645,6 +656,7 @@ namespace Ruby
 		CreateFullScreenQuad(NewResources);
 		CreateResources(NewResources);
 		CreateDeferredResources(NewResources, Size);
+		CreateLightDataResources(NewResources);
 		CreateShadowResources(NewResources);
 
 		GContext.mResources.emplace(Scene.mId, NewResources);
@@ -714,6 +726,11 @@ glm::transpose(CamProj * CamView)
 		//llrm::TransitionTexture(DstCmd, Light.mShadowDepthAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead);
 	}
 
+	void PrepLightDataTex(const Scene& Scene, SceneResources& Res)
+	{
+		
+	}
+
 	void RenderScene(const Scene& Scene, 
 		glm::uvec2 ViewportSize, 
 		const Camera& Camera,
@@ -734,16 +751,22 @@ glm::transpose(CamProj * CamView)
 		glm::mat4 CamView = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
 		UpdateCameraUniforms(Resources.mSceneResources, CamView, Camera.mProjection);
 
-		// Accumulate lights for this frame
-		SceneLights Lights;
+		uint32_t MAX_FRUSTUMS = llrm::GetCaps().MaxImageArrayLayers;
+		uint32_t MaxImageSize = llrm::GetCaps().MaxTextureSize;
+		if(Resources.mShadowFrustumsData.size() != MAX_FRUSTUMS * 4)
+		{
+			Resources.mShadowFrustumsData.resize(MAX_FRUSTUMS * 4);
+		}
 
-		// Create model uniforms
-		constexpr uint32_t MAX_FRUSTUMS = 10;
-		glm::vec4 FrustumData[MAX_FRUSTUMS * 4];
-		memset(FrustumData, 0, sizeof(FrustumData));
+		if (Resources.mLightData.size() != MaxImageSize)
+		{
+			Resources.mLightData.resize(MaxImageSize);
+		}
 
 		uint32_t ShadowMapFrustum = 0;
+		uint32_t LightDataIndex = 1;
 		std::unordered_map<uint32_t, uint32_t> LightFrustums; // LightID -> FrustumIndex
+		uint32_t NumDirLights = 0, NumSpotLights = 0;
 		for (uint32_t Object : Scene.mObjects)
 		{
 			Ruby::Object& Obj = GetObject(Object);
@@ -768,47 +791,53 @@ glm::transpose(CamProj * CamView)
 				{
 					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
 
-					Lights.mDirectionalLights[Lights.mNumDirLights].mColor = Light.mColor;
-					Lights.mDirectionalLights[Lights.mNumDirLights].mDirection = { Direction.x, Direction.y, Direction.z };
-					Lights.mDirectionalLights[Lights.mNumDirLights].mIntensity = Light.mIntensity;
+					Resources.mLightData[LightDataIndex + 0] = glm::vec4((float)LightType::Directional, Light.mColor);
+					Resources.mLightData[LightDataIndex + 1] = glm::vec4(Light.mCastShadows, LightFrustums[Obj.mId], 0.0f, 0.0f);
+					Resources.mLightData[LightDataIndex + 2] = glm::vec4(Direction.x, Direction.y, Direction.z, Light.mIntensity);
+					LightDataIndex += 3;
 
-					Lights.mDirectionalLights[Lights.mNumDirLights].mCastShadows = Light.mCastShadows;
-					if(Light.mCastShadows)
-						Lights.mDirectionalLights[Lights.mNumDirLights].mFrustumBase = LightFrustums[Obj.mId];
+					NumDirLights++;
 
-					Lights.mNumDirLights++;
-
+					// Update shadow information
 					glm::mat4 ViewProj = glm::transpose(CreateDirectionalVPMatrix(Obj.mRotation, CamView, Camera.mProjection));
-
 					uint32_t BaseIndex = LightFrustums[Obj.mId] * 4;
 					glm::mat4 LightViewProj = ViewProj;
-					FrustumData[BaseIndex + 0] = LightViewProj[0];
-					FrustumData[BaseIndex + 1] = LightViewProj[1];
-					FrustumData[BaseIndex + 2] = LightViewProj[2];
-					FrustumData[BaseIndex + 3] = LightViewProj[3];
+					Resources.mShadowFrustumsData[BaseIndex + 0] = LightViewProj[0];
+					Resources.mShadowFrustumsData[BaseIndex + 1] = LightViewProj[1];
+					Resources.mShadowFrustumsData[BaseIndex + 2] = LightViewProj[2];
+					Resources.mShadowFrustumsData[BaseIndex + 3] = LightViewProj[3];
 				}
 				else if(Light.mType == LightType::Spot)
 				{
 					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
 
-					Lights.mSpotLights[Lights.mNumSpotLights].mPosition = Obj.mPosition;
+					/*Lights.mSpotLights[Lights.mNumSpotLights].mPosition = Obj.mPosition;
 					Lights.mSpotLights[Lights.mNumSpotLights].mColor = Light.mColor;
 					Lights.mSpotLights[Lights.mNumSpotLights].mDirection = { Direction.x, Direction.y, Direction.z };
 					Lights.mSpotLights[Lights.mNumSpotLights].mIntensity = Light.mIntensity;
-					Lights.mNumSpotLights++;
+					Lights.mNumSpotLights++;*/
 				}
 			}
 		}
+
+		Resources.mLightData[0] = glm::vec4((float) NumDirLights);
+
+		// Write light data texture
+		llrm::WriteTexture(Resources.mLightDataTexture,
+			llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
+			MaxImageSize, 1, 0,
+			Resources.mLightData.size() * sizeof(glm::vec4), Resources.mLightData.data()
+		);
 
 		// Update frustums data texture
 		llrm::WriteTexture(Resources.mShadowMapFrustums,
 			llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
 			MAX_FRUSTUMS * 4, 1, 0,
-			sizeof(FrustumData), FrustumData
+			Resources.mShadowFrustumsData.size() * sizeof(glm::vec4), Resources.mShadowFrustumsData.data()
 		);
 
 		// Update lights
-		llrm::UpdateUniformBuffer(Resources.mLightResources, 0, &Lights, sizeof(Lights));
+		llrm::UpdateTextureResource(Resources.mLightResources, { Resources.mLightDataTextureView }, 0);
 		llrm::UpdateTextureResource(Resources.mLightResources, {Resources.mShadowMapsResourceView}, 1);
 		llrm::UpdateTextureResource(Resources.mLightResources, { Resources.mShadowMapFrustumsView }, 2);
 

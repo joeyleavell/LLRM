@@ -1,14 +1,11 @@
-#define MAX_DIR_LIGHTS 1
-#define MAX_SPOT_LIGHTS 10
+#define MAX_DIR_LIGHTS 1000
+#define MAX_SPOT_LIGHTS 1000
 
 struct DirectionalLight
 {
 	float3	Direction;
 	float3	Color;
 	float	Intensity;
-
-	bool CastShadows;
-  	uint FrustumBase;
 };
 
 struct SpotLight
@@ -23,7 +20,7 @@ float3 CalcDirectionalLight(DirectionalLight Light, float4 Albedo, float3 Positi
 {
 	// Directional light
 	float NDotL = max(dot(Normal, -Light.Direction), 0.0f);
-	return (Albedo * NDotL).rgb;
+	return (Albedo * NDotL).rgb * Light.Intensity;
 }
 
 float4x4 ExtractViewProjMatrix(Texture2D<float4> Tex, uint FrustumIndex)

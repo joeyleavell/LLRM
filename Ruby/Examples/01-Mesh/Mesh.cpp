@@ -17,19 +17,26 @@ Ruby::SceneId CreateScene()
 	Ruby::AddObject(NewScene, gCube);
 
 	// Create floor 
-	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 100, 1, 100 }));
+	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 1000, 1, 1000 }));
 	Ruby::ObjectId FloorObj = Ruby::CreateMeshObject(Floor, { 0, -20.0f, 0.0f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, FloorObj);
 
-	// Create directional light facing (0.0, 0.0, -1.0)
-	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f, true);
-	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -80.0f, -0.0f, 0.0f });
-	Ruby::AddObject(NewScene, DirLight);
+	uint32_t Lights = 5;
+	float Scaler = 0.1f;
+	for(uint32_t i = 0; i < Lights; i++)
+	{
+		float rand1 = ((rand() % 1000) / 1000.0f);
+		float rand2 = ((rand() % 1000) / 1000.0f);
+		float Min = -10.0f;
+		float Max = -170.0f;
+		float AngleX = rand1 * (Max - Min) + Min;
+		float AngleY = rand2 * (Max - Min) + Min;
 
-	Ruby::LightId Dir2 = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f, true);
-	Ruby::ObjectId DirLight2 = Ruby::CreateLightObject(Dir2, {}, { -130.0f, -0.0f, 0.0f });
-	Ruby::AddObject(NewScene, DirLight2);
-
+		// Create directional light facing (0.0, 0.0, -1.0)
+		Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f / Lights * Scaler, true);
+		Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { AngleX, AngleY, 0.0f });
+		Ruby::AddObject(NewScene, DirLight);
+	}
 
 	return NewScene;
 }
@@ -65,16 +72,16 @@ int main()
 		float DeltaSeconds = static_cast<float>(Delta.count() / 1e9) * 50.0f;
 
 		Ruby::GetObject(gCube).mRotation.x += DeltaSeconds;
-		Ruby::GetObject(gCube).mRotation.y += DeltaSeconds;
+		Ruby::GetObject(gCube).mRotation.y += DeltaSeconds; 
 		Ruby::GetObject(gCube).mRotation.z += DeltaSeconds;
-
+		 
 		glfwPollEvents();
 		int32_t Width{}, Height{};
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
 
 		Ruby::Camera Cam{};
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
-		Cam.mPosition.z = 20.0f;
+		Cam.mPosition.z = 10.0f;
 
 		Ruby::RenderScene(NewScene, glm::ivec2{Width, Height}, Cam, Swap);
 	}

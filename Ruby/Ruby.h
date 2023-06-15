@@ -54,11 +54,19 @@ namespace Ruby
 		llrm::Pipeline		 mDeferredShadePipe;
 		llrm::ResourceSet	 mDeferredShadeRes;
 
+		// Light data resources
+		llrm::Texture			mLightDataTexture;
+		llrm::TextureView		mLightDataTextureView;
+		std::vector<glm::vec4>  mLightData;
+
+
 		// Shadow map resources
 		llrm::Texture				   mShadowMaps;
 		llrm::TextureView			   mShadowMapsResourceView;
 		std::vector<llrm::TextureView> mShadowMapAttachmentViews;
 		std::vector<llrm::FrameBuffer> mShadowMapFbos;
+
+		std::vector<glm::vec4>		   mShadowFrustumsData;
 
 		llrm::Texture		 mShadowMapFrustums;
 		llrm::TextureView	 mShadowMapFrustumsView;
@@ -111,10 +119,10 @@ namespace Ruby
 		std::unordered_set<uint32_t> mObjects;
 	};
 
-	enum class LightType
+	enum class LightType : uint8_t
 	{
-		Directional,
-		Spot
+		Directional = 0,
+		Spot = 1
 	};
 
 	struct Light
