@@ -114,36 +114,11 @@ namespace Ruby
 				Width, Height,
 				{llrm::GetSwapChainImageView(Swap, Image)},
 				Graph
-				});
+			});
 
 			if (!CmdBuffers[Image])
 				CmdBuffers[Image] = llrm::CreateCommandBuffer();
 		}
-	}
-
-	void CreateShadowMapResources()
-	{
-		GContext.mShadowMapRG = llrm::CreateRenderGraph({
-			{{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::D24_UNORM_S8_UINT}},
-			{{{0}}}
-		});
-
-		GContext.mShadowMapPipe = llrm::CreatePipeline({
-			LoadRasterShader("DepthRender", "DepthRender"),
-			GContext.mShadowMapRG,
-			{GContext.mLightObjectResourceLayout, GContext.mObjectResourceLayout},
-			sizeof(MeshVertex),
-			{
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
-			},
-			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}},
-			{true},
-			0,
-			llrm::VertexWinding::CounterClockwise,
-			llrm::CullMode::Front
-		});
 	}
 
 	RubyContext CreateContext(const ContextParams& Params)
@@ -216,9 +191,78 @@ namespace Ruby
 		}
 		});
 
+		// Create render graphs
+		NewContext.mDeferredGeoRG = llrm::CreateRenderGraph({
+			{
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Albedo
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Position
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Normal
+				{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentFormat::D24_UNORM_S8_UINT} // Depth
+			},
+			{{{0, 1, 2, 3}}}
+		});
+		NewContext.mDeferredShadeRG = llrm::CreateRenderGraph({
+{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // HDR buffer
+{{{0}}}
+		});
+		NewContext.mShadowMapRG = llrm::CreateRenderGraph({
+	{{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::D24_UNORM_S8_UINT}},
+	{{{0}}}
+		});
+
+		// Set global compiled shaders location so we can load shaders
+		GContext.CompiledShaders = NewContext.CompiledShaders;
+
+		// Create pipelines
+		NewContext.mDeferredGeoPipe = llrm::CreatePipeline({
+			LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
+			NewContext.mDeferredGeoRG,
+			{NewContext.mSceneResourceLayout, NewContext.mObjectResourceLayout},
+			sizeof(MeshVertex),
+			{
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}, {false}, {false}},
+			{true},
+			0
+		});
+
+		NewContext.mDeferredShadePipe = llrm::CreatePipeline({
+			LoadRasterShader("DeferredShade", "DeferredShade"),
+			NewContext.mDeferredShadeRG,
+			{NewContext.mLightsResourceLayout, NewContext.mDeferredShadeRl},
+			sizeof(PosUV),
+			{
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
+				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{false},
+			0
+		});
+
+		NewContext.mShadowMapPipe = llrm::CreatePipeline({
+			LoadRasterShader("DepthRender", "DepthRender"),
+			NewContext.mShadowMapRG,
+			{NewContext.mLightObjectResourceLayout, NewContext.mObjectResourceLayout},
+			sizeof(MeshVertex),
+			{
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
+				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
+			},
+			llrm::PipelineRenderPrimitive::TRIANGLES,
+			{{false}},
+			{true},
+			0,
+			llrm::VertexWinding::CounterClockwise,
+			llrm::CullMode::Front
+		});
+
 		GContext = NewContext;
 
-		CreateShadowMapResources();
 
 		return NewContext;
 	}
@@ -233,20 +277,11 @@ namespace Ruby
 		GContext = Context;
 	}
 
-	SwapChain CreateSwapChain(GLFWwindow* Wnd)
+	void CreateSwapResources(SwapChain& Swap, uint32_t Width, uint32_t Height)
 	{
-		SwapChain Swap{};
-
-		// Create surface and set mWnd
-		{
-			Swap.mSurface = llrm::CreateSurface(Wnd);
-			Swap.mWnd = Wnd;
-		}
 
 		// Create llrm::SwapChain
 		{
-			int Width, Height;
-			glfwGetFramebufferSize(Wnd, &Width, &Height);
 			Swap.mSwap = llrm::CreateSwapChain(Swap.mSurface, Width, Height);
 		}
 
@@ -257,13 +292,13 @@ namespace Ruby
 				llrm::AttachmentUsage::Undefined,
 				llrm::AttachmentUsage::Presentation,
 				llrm::GetTextureFormat(llrm::GetSwapChainImage(Swap.mSwap, 0)),
-			});
+				});
 			Info.Passes = { {{0}} };
 
 			Swap.mTonemapGraph = llrm::CreateRenderGraph(Info);
 		}
 
-		Swap.mTonemapResources = llrm::CreateResourceSet({ GContext.mTonemapLayout});
+		Swap.mTonemapResources = llrm::CreateResourceSet({ GContext.mTonemapLayout });
 
 		// Create final pipeline stage
 		Swap.mTonemapPipeline = llrm::CreatePipeline({
@@ -280,6 +315,22 @@ namespace Ruby
 			{false},
 			0
 		});
+	}
+
+	SwapChain CreateSwapChain(GLFWwindow* Wnd)
+	{
+		SwapChain Swap{};
+
+		// Create surface and set mWnd
+		{
+			Swap.mSurface = llrm::CreateSurface(Wnd);
+			Swap.mWnd = Wnd;
+		}
+
+		int Width, Height;
+		glfwGetFramebufferSize(Wnd, &Width, &Height);
+
+		CreateSwapResources(Swap, Width, Height);
 
 		// Create command buffers and frame buffers
 		UpdateSwapChain(Swap.mSwap, Swap.mTonemapGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
@@ -291,6 +342,95 @@ namespace Ruby
 	{
 		llrm::DestroySwapChain(Swap.mSwap);
 		llrm::DestroySurface(Swap.mSurface);
+	}
+
+	void ResizeSwapChain(SwapChain& Swap, uint32_t NewWidth, uint32_t NewHeight)
+	{
+		llrm::DestroySwapChain(Swap.mSwap);
+		llrm::DestroyRenderGraph(Swap.mTonemapGraph);
+		llrm::DestroyPipeline(Swap.mTonemapPipeline);
+		llrm::DestroyResourceSet(Swap.mTonemapResources);
+
+		// Re-create swap resources
+		CreateSwapResources(Swap, NewWidth, NewHeight);
+
+		// Recreate frame buffers
+		UpdateSwapChain(Swap.mSwap, Swap.mTonemapGraph, Swap.mFrameBuffers, Swap.mCmdBuffers);
+	}
+
+	RenderTarget CreateRenderTarget(uint32_t Width, uint32_t Height)
+	{
+		RenderTarget Target;
+
+		// Create scene color
+		Target.mHDRColor = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Target.mHDRColorView = llrm::CreateTextureView(Target.mHDRColor, llrm::AspectFlags::COLOR_ASPECT);
+
+		// Create scene depth
+		Target.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Width, Height, llrm::TEXTURE_USAGE_RT, 1);
+		Target.mDepthView = llrm::CreateTextureView(Target.mDepth, llrm::AspectFlags::DEPTH_ASPECT);
+
+		// Create deferred geometry textures
+		Target.mDeferredAlbedo = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Target.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Target.mDeferredNormal = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Target.mDeferredAlbedoView = llrm::CreateTextureView(Target.mDeferredAlbedo, llrm::AspectFlags::COLOR_ASPECT);
+		Target.mDeferredPositionView = llrm::CreateTextureView(Target.mDeferredPosition, llrm::AspectFlags::COLOR_ASPECT);
+		Target.mDeferredNormalView = llrm::CreateTextureView(Target.mDeferredNormal, llrm::AspectFlags::COLOR_ASPECT);
+
+		// Create deferred framebuffers
+		Target.mDeferredGeoFB = llrm::CreateFrameBuffer({
+			Width, Height,
+			{Target.mDeferredAlbedoView, Target.mDeferredPositionView, Target.mDeferredNormalView, Target.mDepthView},
+			GContext.mDeferredGeoRG
+		});
+
+		Target.mDeferredShadeFB = llrm::CreateFrameBuffer({
+			Width, Height,
+			{Target.mHDRColorView},
+			GContext.mDeferredShadeRG
+		});
+
+		return Target;
+	}
+
+	void DestroyRenderTarget(RenderTarget& Target)
+	{
+		llrm::DestroyTexture(Target.mHDRColor);
+		llrm::DestroyTexture(Target.mDepth);
+		llrm::DestroyTexture(Target.mDeferredAlbedo);
+		llrm::DestroyTexture(Target.mDeferredPosition);
+		llrm::DestroyTexture(Target.mDeferredNormal);
+
+		llrm::DestroyFrameBuffer(Target.mDeferredGeoFB);
+		llrm::DestroyFrameBuffer(Target.mDeferredShadeFB);
+
+		llrm::DestroyTextureView(Target.mDepthView);
+		llrm::DestroyTextureView(Target.mHDRColorView);
+		llrm::DestroyTextureView(Target.mDeferredAlbedoView);
+		llrm::DestroyTextureView(Target.mDeferredPositionView);
+		llrm::DestroyTextureView(Target.mDeferredNormalView);
+
+		Target.mHDRColor = nullptr;
+		Target.mDepth = nullptr;
+		Target.mDeferredAlbedo = nullptr;
+		Target.mDeferredPosition = nullptr;
+		Target.mDeferredNormal = nullptr;
+
+		Target.mDeferredGeoFB = nullptr;
+		Target.mDeferredShadeFB = nullptr;
+
+		Target.mDepthView = nullptr;
+		Target.mHDRColorView = nullptr;
+		Target.mDeferredAlbedoView = nullptr;
+		Target.mDeferredPositionView = nullptr;
+		Target.mDeferredNormalView = nullptr;
+	}
+
+	void ResizeRenderTarget(RenderTarget& Target, uint32_t NewWidth, uint32_t NewHeight)
+	{
+		DestroyRenderTarget(Target);
+		Target = CreateRenderTarget(NewWidth, NewHeight);
 	}
 
 	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows)
@@ -495,73 +635,7 @@ namespace Ruby
 
 	void CreateDeferredResources(SceneResources& Res, glm::uvec2 Size)
 	{
-		// Create textures
-		Res.mDeferredAlbedo   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
-		Res.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
-		Res.mDeferredNormal   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
-		Res.mDeferredAlbedoView = llrm::CreateTextureView(Res.mDeferredAlbedo, llrm::AspectFlags::COLOR_ASPECT);
-		Res.mDeferredPositionView = llrm::CreateTextureView(Res.mDeferredPosition, llrm::AspectFlags::COLOR_ASPECT);
-		Res.mDeferredNormalView = llrm::CreateTextureView(Res.mDeferredNormal, llrm::AspectFlags::COLOR_ASPECT);
 
-		// Create render graph
-		Res.mDeferredGeoRG = llrm::CreateRenderGraph({
-			{
-				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Albedo
-				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Position
-				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Normal
-				{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentFormat::D24_UNORM_S8_UINT} // Depth
-			}, 
-			{{{0, 1, 2, 3}}}
-		});
-
-		Res.mDeferredShadeRG = llrm::CreateRenderGraph({
-	{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // HDR buffer
-	{{{0}}}
-		});
-
-		// Create pipeline
-		Res.mDeferredGeoPipe= llrm::CreatePipeline({
-			LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
-			Res.mDeferredGeoRG,
-			{GContext.mSceneResourceLayout, GContext.mObjectResourceLayout},
-			sizeof(MeshVertex),
-			{
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
-				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
-			},
-			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}, {false}, {false}},
-			{true},
-			0
-		});
-
-		Res.mDeferredShadePipe = llrm::CreatePipeline({
-			LoadRasterShader("DeferredShade", "DeferredShade"),
-			Res.mDeferredShadeRG,
-			{GContext.mLightsResourceLayout, GContext.mDeferredShadeRl},
-			sizeof(PosUV),
-			{
-				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
-				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
-			},
-			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}},
-			{false},
-			0
-		});
-
-		// Create frame buffer
-		Res.mDeferredGeoFB = llrm::CreateFrameBuffer({
-			Size.x, Size.y,
-			{Res.mDeferredAlbedoView, Res.mDeferredPositionView, Res.mDeferredNormalView, Res.mDepthView},
-			Res.mDeferredGeoRG
-		});
-
-		Res.mDeferredShadeFB = llrm::CreateFrameBuffer({
-			Size.x, Size.y,
-			{Res.mHDRColorView},
-			Res.mDeferredShadeRG
-		});
 	}
 
 	void CreateLightDataResources(SceneResources& Res)
@@ -644,14 +718,6 @@ namespace Ruby
 		// Create scene resources
 		SceneResources NewResources{};
 
-		// Create color texture
-		NewResources.mHDRColor	   = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Size.x, Size.y, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
-		NewResources.mHDRColorView = llrm::CreateTextureView(NewResources.mHDRColor, llrm::AspectFlags::COLOR_ASPECT);
-
-		// Create depth buffer
-		NewResources.mDepth = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT, llrm::AttachmentUsage::DepthStencilAttachment, Size.x, Size.y, llrm::TEXTURE_USAGE_RT, 1);
-		NewResources.mDepthView = llrm::CreateTextureView(NewResources.mDepth, llrm::AspectFlags::DEPTH_ASPECT);
-
 		CreateSamplers(NewResources);
 		CreateFullScreenQuad(NewResources);
 		CreateResources(NewResources);
@@ -731,7 +797,8 @@ glm::transpose(CamProj * CamView)
 		
 	}
 
-	void RenderScene(const Scene& Scene, 
+	void RenderScene(const Scene& Scene,
+		const RenderTarget& RT,
 		glm::uvec2 ViewportSize, 
 		const Camera& Camera,
 		const llrm::CommandBuffer& DstCmd, 
@@ -844,13 +911,13 @@ glm::transpose(CamProj * CamView)
 
 		// Update tonemap inputs
 		llrm::UpdateSamplerResource(DstResources, Resources.mNearestSampler, 0);
-		llrm::UpdateTextureResource(DstResources, { Resources.mHDRColorView }, 1);
+		llrm::UpdateTextureResource(DstResources, { RT.mHDRColorView }, 1);
 
 		// Update deferred shade inputs
 		llrm::UpdateSamplerResource(Resources.mDeferredShadeRes, Resources.mNearestSampler, 0);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredAlbedoView }, 1);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredPositionView }, 2);
-		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { Resources.mDeferredNormalView }, 3);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredAlbedoView }, 1);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredPositionView }, 2);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredNormalView }, 3);
 
 		// Render the scene
 		llrm::Begin(DstCmd);
@@ -884,9 +951,9 @@ glm::transpose(CamProj * CamView)
 				}
 			}
 			
-			llrm::TransitionTexture(DstCmd, Resources.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
-			llrm::TransitionTexture(DstCmd, Resources.mDeferredPosition, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
-			llrm::TransitionTexture(DstCmd, Resources.mDeferredNormal, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, RT.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, RT.mDeferredPosition, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, RT.mDeferredNormal, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 
 			// Deferred geometry stage
 			std::vector<llrm::ClearValue> ClearValues = {
@@ -895,12 +962,12 @@ glm::transpose(CamProj * CamView)
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
 				{llrm::ClearType::Float, 1.0f}
 			};
-			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredGeoRG, Resources.mDeferredGeoFB, ClearValues);
+			llrm::BeginRenderGraph(DstCmd, GContext.mDeferredGeoRG, RT.mDeferredGeoFB, ClearValues);
 			{
 				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
-				llrm::BindPipeline(DstCmd, Resources.mDeferredGeoPipe);
+				llrm::BindPipeline(DstCmd, GContext.mDeferredGeoPipe);
 
 				for(uint32_t Object : Scene.mObjects)
 				{
@@ -922,13 +989,13 @@ glm::transpose(CamProj * CamView)
 			ClearValues = {
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f},
 			};
-			llrm::TransitionTexture(DstCmd, Resources.mHDRColor, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
-			llrm::BeginRenderGraph(DstCmd, Resources.mDeferredShadeRG, Resources.mDeferredShadeFB, ClearValues);
+			llrm::TransitionTexture(DstCmd, RT.mHDRColor, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::BeginRenderGraph(DstCmd, GContext.mDeferredShadeRG, RT.mDeferredShadeFB, ClearValues);
 			{
 				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
-				llrm::BindPipeline(DstCmd, Resources.mDeferredShadePipe);
+				llrm::BindPipeline(DstCmd, GContext.mDeferredShadePipe);
 				llrm::BindResources(DstCmd, { Resources.mLightResources, Resources.mDeferredShadeRes });
 				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
 			}
@@ -953,7 +1020,8 @@ glm::transpose(CamProj * CamView)
 	}
 
 	void RenderScene(SceneId Id, 
-		glm::ivec2 ViewportSize, 
+		const RenderTarget& RT,
+		glm::ivec2 ViewportSize,
 		const Camera& Camera,
 		const SwapChain& Target,
 		std::function<void(const llrm::CommandBuffer&)> PostTonemap
@@ -969,7 +1037,8 @@ glm::transpose(CamProj * CamView)
 			const llrm::CommandBuffer& Cmd = Target.mCmdBuffers[ImageIndex];
 
 			llrm::Reset(Cmd);
-			RenderScene(ToRender, 
+			RenderScene(ToRender,
+				RT,
 				ViewportSize, 
 				Camera, 
 				Cmd, 

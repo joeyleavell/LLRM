@@ -43,6 +43,9 @@ Ruby::SceneId CreateScene()
 	return NewScene;
 }
 
+static bool NeedsResize = false;
+uint32_t Width, Height;
+
 int main()
 {
 	// Create window
@@ -61,12 +64,20 @@ int main()
 	Ruby::RubyContext Context = Ruby::CreateContext(Params);
 
 	Ruby::SwapChain Swap = Ruby::CreateSwapChain(Wnd);
+	Ruby::RenderTarget Target = Ruby::CreateRenderTarget(800, 600);
 
 	Ruby::SceneId NewScene = CreateScene();
 
 	auto Last = std::chrono::high_resolution_clock::now();
 
 	InitImGui(Wnd, Context.LLContext, Swap.mSwap, Swap.mTonemapGraph, { true, false,  true });
+
+	glfwSetWindowSizeCallback(Wnd, [](GLFWwindow* Wnd, int NewWidth, int NewHeight)
+	{
+		NeedsResize = true;
+		Width = NewWidth;
+		Height = NewHeight;
+	});
 
 	while (!glfwWindowShouldClose(Wnd))
 	{
@@ -80,9 +91,38 @@ int main()
 		Ruby::GetObject(gCube).mRotation.z += DeltaSeconds;
 
 		glfwPollEvents();
+		if(NeedsResize)
+		{
+			Ruby::ResizeRenderTarget(Target, Width, Height);
+			Ruby::ResizeSwapChain(Swap, Width, Height);
+
+			NeedsResize = false;
+		}
 
 		BeginImGuiFrame();
 		{
+			const ImGuiViewport* Viewport = ImGui::GetMainViewport();
+			ImGuiDockNodeFlags DockspaceFlags = ImGuiDockNodeFlags_PassthruCentralNode;
+
+			ImGui::SetNextWindowPos(Viewport->WorkPos);
+			ImGui::SetNextWindowSize(Viewport->WorkSize);
+			ImGui::SetNextWindowViewport(Viewport->ID);
+
+			ImGuiWindowFlags HostWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking;
+			HostWindowFlags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+			HostWindowFlags |= ImGuiWindowFlags_NoBackground;
+
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+			ImGui::Begin("Editor", NULL, HostWindowFlags);
+
+			ImGui::PopStyleVar(3);
+
+			ImGuiID DockspaceId = ImGui::GetID("DockSpace");
+			ImGui::DockSpace(DockspaceId, ImVec2(0.0f, 0.0f), DockspaceFlags, nullptr);
+			ImGui::End();
+
 			ImGui::ShowDemoWindow();
 		}
 		EndImGuiFrame();
@@ -95,7 +135,7 @@ int main()
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
 		Cam.mPosition.z = 10.0f;
 
-		Ruby::RenderScene(NewScene, glm::ivec2{ Width, Height }, Cam, Swap,
+		Ruby::RenderScene(NewScene, Target, glm::ivec2{ Width, Height }, Cam, Swap,
 		[](const llrm::CommandBuffer& Buf)
 		{
 			RecordImGuiCmds(Buf);

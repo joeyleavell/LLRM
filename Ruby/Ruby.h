@@ -21,14 +21,9 @@ namespace Ruby
 
 	struct SceneResources
 	{
-		llrm::Texture	  mHDRColor;
-		llrm::TextureView mHDRColorView;
-		llrm::Texture	  mDepth;
-		llrm::TextureView mDepthView;
-
 		// Full screen quad
 		llrm::VertexBuffer mFullScreenQuadVbo;
-		llrm::IndexBuffer mFullScreenQuadIbo;
+		llrm::IndexBuffer  mFullScreenQuadIbo;
 
 		llrm::ResourceSet	 mSceneResources;
 		llrm::ResourceSet	 mLightResources;
@@ -36,22 +31,7 @@ namespace Ruby
 		// Samplers
 		llrm::Sampler		 mNearestSampler;
 
-		// Deferred geometry stage
-		llrm::Texture		 mDeferredAlbedo;
-		llrm::Texture		 mDeferredPosition;
-		llrm::Texture		 mDeferredNormal;
-		llrm::TextureView	 mDeferredAlbedoView;
-		llrm::TextureView	 mDeferredPositionView;
-		llrm::TextureView	 mDeferredNormalView;
-
-		llrm::RenderGraph	 mDeferredGeoRG;
-		llrm::FrameBuffer	 mDeferredGeoFB;
-		llrm::Pipeline		 mDeferredGeoPipe;
-
 		// Deferred shading stage
-		llrm::RenderGraph	 mDeferredShadeRG;
-		llrm::FrameBuffer	 mDeferredShadeFB;
-		llrm::Pipeline		 mDeferredShadePipe;
 		llrm::ResourceSet	 mDeferredShadeRes;
 
 		// Light data resources
@@ -59,13 +39,11 @@ namespace Ruby
 		llrm::TextureView		mLightDataTextureView;
 		std::vector<glm::vec4>  mLightData;
 
-
 		// Shadow map resources
 		llrm::Texture				   mShadowMaps;
 		llrm::TextureView			   mShadowMapsResourceView;
 		std::vector<llrm::TextureView> mShadowMapAttachmentViews;
 		std::vector<llrm::FrameBuffer> mShadowMapFbos;
-
 		std::vector<glm::vec4>		   mShadowFrustumsData;
 
 		llrm::Texture		 mShadowMapFrustums;
@@ -160,6 +138,14 @@ namespace Ruby
 		llrm::RenderGraph	 mShadowMapRG;
 		llrm::Pipeline		 mShadowMapPipe;
 
+		// Render graphs
+		llrm::RenderGraph	 mDeferredGeoRG;
+		llrm::RenderGraph	 mDeferredShadeRG;
+
+		// Pipelines
+		llrm::Pipeline		 mDeferredGeoPipe;
+		llrm::Pipeline		 mDeferredShadePipe;
+
 		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
 
@@ -175,7 +161,27 @@ namespace Ruby
 		llrm::RenderGraph mTonemapGraph;
 		llrm::Pipeline mTonemapPipeline;
 		llrm::ResourceSet mTonemapResources;
+	};
 
+	struct RenderTarget
+	{
+		// Deferred geometry stage
+		llrm::Texture		 mDeferredAlbedo;
+		llrm::Texture		 mDeferredPosition;
+		llrm::Texture		 mDeferredNormal;
+		llrm::TextureView	 mDeferredAlbedoView;
+		llrm::TextureView	 mDeferredPositionView;
+		llrm::TextureView	 mDeferredNormalView;
+		llrm::FrameBuffer	 mDeferredGeoFB;
+
+		// Deferred shading stage
+		llrm::FrameBuffer	 mDeferredShadeFB;
+
+		// Scene color/depth
+		llrm::Texture	  mHDRColor;
+		llrm::TextureView mHDRColorView;
+		llrm::Texture	  mDepth;
+		llrm::TextureView mDepthView;
 	};
 
 	struct ContextParams
@@ -201,6 +207,12 @@ namespace Ruby
 	void SetContext(const RubyContext& Context);
 	SwapChain CreateSwapChain(GLFWwindow* Wnd);
 	void DestroySwapChain(const SwapChain& Swap);
+	void ResizeSwapChain(SwapChain& Swap, uint32_t NewWidth, uint32_t NewHeight);
+
+	// Render target
+	RenderTarget CreateRenderTarget(uint32_t Width, uint32_t Height);
+	void DestroyRenderTarget(RenderTarget& Target);
+	void ResizeRenderTarget(RenderTarget& Target, uint32_t Width, uint32_t Height);
 
 	// Light
 	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows);
@@ -250,7 +262,8 @@ namespace Ruby
 		llrm::Surface Surface{};
 	};
 
-	void RenderScene(SceneId Scene, 
+	void RenderScene(SceneId Scene,
+		const RenderTarget& RT,
 		glm::ivec2 ViewportSize, 
 		const Camera& Camera, 
 		const SwapChain& Target,

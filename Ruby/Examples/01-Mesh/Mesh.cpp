@@ -59,6 +59,7 @@ int main()
 	Ruby::CreateContext(Params);
 
 	Ruby::SwapChain Swap = Ruby::CreateSwapChain(Wnd);
+	Ruby::RenderTarget Target = Ruby::CreateRenderTarget(800, 600);
 
 	Ruby::SceneId NewScene = CreateScene();
 
@@ -83,7 +84,7 @@ int main()
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
 		Cam.mPosition.z = 10.0f;
 
-		Ruby::RenderScene(NewScene, glm::ivec2{Width, Height}, Cam, Swap);
+		Ruby::RenderScene(NewScene, Target, glm::ivec2{Width, Height}, Cam, Swap);
 	}
 
 	return 0;
