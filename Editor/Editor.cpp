@@ -5,6 +5,8 @@
 #include "Utill.h"
 #include <chrono>
 
+#include "ImGuiSupport.h"
+
 static Ruby::ObjectId gCube;
 
 Ruby::SceneId CreateScene()
@@ -13,7 +15,7 @@ Ruby::SceneId CreateScene()
 
 	// Create object in front of camera
 	Ruby::Mesh CubeMesh = Ruby::CreateMesh(TesselateRectPrism({ 10, 10, 10 }));
-	gCube = Ruby::CreateMeshObject(CubeMesh, { 0, 0, -30.0f }, {0, 0, 0});
+	gCube = Ruby::CreateMeshObject(CubeMesh, { 0, 0, -30.0f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, gCube);
 
 	// Create floor 
@@ -23,7 +25,7 @@ Ruby::SceneId CreateScene()
 
 	uint32_t Lights = 1;
 	float Scaler = 0.1f;
-	for(uint32_t i = 0; i < Lights; i++)
+	for (uint32_t i = 0; i < Lights; i++)
 	{
 		float rand1 = ((rand() % 1000) / 1000.0f);
 		float rand2 = ((rand() % 1000) / 1000.0f);
@@ -44,7 +46,7 @@ Ruby::SceneId CreateScene()
 int main()
 {
 	// Create window
-	if(!glfwInit())
+	if (!glfwInit())
 	{
 		return 0;
 	}
@@ -56,7 +58,7 @@ int main()
 	GLFWwindow* Wnd = glfwCreateWindow(800, 600, "Mesh Test", nullptr, nullptr);
 
 	Ruby::ContextParams Params{};
-	Ruby::CreateContext(Params);
+	Ruby::RubyContext Context = Ruby::CreateContext(Params);
 
 	Ruby::SwapChain Swap = Ruby::CreateSwapChain(Wnd);
 
@@ -64,18 +66,28 @@ int main()
 
 	auto Last = std::chrono::high_resolution_clock::now();
 
-	while(!glfwWindowShouldClose(Wnd))
+	InitImGui(Wnd, Context.LLContext, Swap.mSwap, Swap.mTonemapGraph, { true, false,  true });
+
+	while (!glfwWindowShouldClose(Wnd))
 	{
-		auto Now  = std::chrono::high_resolution_clock::now();
+		auto Now = std::chrono::high_resolution_clock::now();
 		auto Delta = std::chrono::duration_cast<std::chrono::nanoseconds>(Now - Last);
 		Last = Now;
 		float DeltaSeconds = static_cast<float>(Delta.count() / 1e9) * 50.0f;
 
 		Ruby::GetObject(gCube).mRotation.x += DeltaSeconds;
-		Ruby::GetObject(gCube).mRotation.y += DeltaSeconds; 
+		Ruby::GetObject(gCube).mRotation.y += DeltaSeconds;
 		Ruby::GetObject(gCube).mRotation.z += DeltaSeconds;
-		 
+
 		glfwPollEvents();
+
+		BeginImGuiFrame();
+		{
+			ImGui::ShowDemoWindow();
+		}
+		EndImGuiFrame();
+		UpdateImGuiViewports();
+
 		int32_t Width{}, Height{};
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
 
@@ -83,7 +95,13 @@ int main()
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
 		Cam.mPosition.z = 10.0f;
 
-		Ruby::RenderScene(NewScene, glm::ivec2{Width, Height}, Cam, Swap);
+		Ruby::RenderScene(NewScene, glm::ivec2{ Width, Height }, Cam, Swap,
+		[](const llrm::CommandBuffer& Buf)
+		{
+			RecordImGuiCmds(Buf);
+		}
+		);
+
 	}
 
 	return 0;

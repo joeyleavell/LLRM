@@ -253,7 +253,8 @@ namespace Ruby
 	void RenderScene(SceneId Scene, 
 		glm::ivec2 ViewportSize, 
 		const Camera& Camera, 
-		const SwapChain& Target
+		const SwapChain& Target,
+		std::function<void(const llrm::CommandBuffer&)> PostTonemap = [](const llrm::CommandBuffer& Buf){}
 	);
 
 }

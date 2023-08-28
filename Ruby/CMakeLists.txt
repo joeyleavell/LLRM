@@ -29,7 +29,7 @@ target_sources(${RUBY_TARGET} PRIVATE
     "Uniforms.h"
   "Vertex.h" "Shaders/Lights.h")
 
-target_link_libraries(${RUBY_TARGET} PRIVATE glm)
+target_link_libraries(${RUBY_TARGET} PUBLIC glm)
 target_link_libraries(${RUBY_TARGET} PRIVATE glslang)
 target_link_libraries(${RUBY_TARGET} PRIVATE SPIRV)
 target_link_libraries(${RUBY_TARGET} PUBLIC ${LLRM_TARGET})

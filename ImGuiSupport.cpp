@@ -69,7 +69,7 @@ void EndImGuiFrame()
     ImGui::Render();
 }
 
-/*void UpdateImGuiViewports()
+void UpdateImGuiViewports()
 {
     // Update and Render additional Platform Windows
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -77,7 +77,7 @@ void EndImGuiFrame()
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
     }
-}*/
+}
 
 ImGuiContext* InitImGui(GLFWwindow* Wnd, llrm::Context Context, llrm::SwapChain Swap, llrm::RenderGraph Graph, ImGuiFeatures Features)
 {
@@ -88,13 +88,13 @@ ImGuiContext* InitImGui(GLFWwindow* Wnd, llrm::Context Context, llrm::SwapChain 
     ImGuiIO& IO = ImGui::GetIO();
     if (Features.EnableSRGB)
         IO.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
-    //if (Features.EnableDocking)
-    //    IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    //if (Features.EnableViewports)
-    //    IO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    if (Features.EnableDocking)
+        IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    if (Features.EnableViewports)
+        IO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-    //IO.ConfigViewportsNoDecoration = false;
-    //IO.ConfigViewportsNoAutoMerge = true;
+    IO.ConfigViewportsNoDecoration = false;
+    IO.ConfigViewportsNoAutoMerge = true;
     IO.ConfigWindowsMoveFromTitleBarOnly = true;
 
     // Set style

@@ -738,7 +738,8 @@ glm::transpose(CamProj * CamView)
 		const llrm::FrameBuffer& DstBuf, 
 		const llrm::RenderGraph& DstGraph, 
 		const llrm::Pipeline& DstPipeline,
-		const llrm::ResourceSet& DstResources
+		const llrm::ResourceSet& DstResources,
+		std::function<void(const llrm::CommandBuffer&)> PostTonemap
 	)
 	{
 		if(!GContext.mResources.contains(Scene.mId))
@@ -942,6 +943,9 @@ glm::transpose(CamProj * CamView)
 				llrm::BindPipeline(DstCmd, DstPipeline);
 				llrm::BindResources(DstCmd, { DstResources });
 				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
+
+				// Call post tonemap
+				PostTonemap(DstCmd);
 			}
 			llrm::EndRenderGraph(DstCmd);
 		}
@@ -951,7 +955,8 @@ glm::transpose(CamProj * CamView)
 	void RenderScene(SceneId Id, 
 		glm::ivec2 ViewportSize, 
 		const Camera& Camera,
-		const SwapChain& Target
+		const SwapChain& Target,
+		std::function<void(const llrm::CommandBuffer&)> PostTonemap
 	)
 	{
 		Scene& ToRender = GContext.mScenes[Id];
@@ -971,7 +976,8 @@ glm::transpose(CamProj * CamView)
 				Buffer, 
 				Target.mTonemapGraph, 
 				Target.mTonemapPipeline,
-				Target.mTonemapResources
+				Target.mTonemapResources,
+				PostTonemap
 			);
 
 			llrm::EndFrame({ Cmd });
