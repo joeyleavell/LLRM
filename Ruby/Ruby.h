@@ -6,6 +6,7 @@
 #include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
 #include "Uniforms.h"
+#include "glm/gtx/quaternion.hpp"
 
 namespace Ruby
 {
@@ -53,7 +54,7 @@ namespace Ruby
 	struct Camera
 	{
 		glm::vec3 mPosition;
-		glm::vec3 mRotation;
+		glm::quat mRotation;
 		glm::mat4 mProjection;
 	};
 

@@ -816,7 +816,7 @@ glm::transpose(CamProj * CamView)
 
 		SceneResources& Resources = GContext.mResources[Scene.mId];
 
-		glm::mat4 CamView = glm::inverse(BuildTransform(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
+		glm::mat4 CamView = glm::inverse(BuildTransformQuat(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
 		UpdateCameraUniforms(Resources.mSceneResources, CamView, Camera.mProjection);
 
 		uint32_t MAX_FRUSTUMS = llrm::GetCaps().MaxImageArrayLayers;

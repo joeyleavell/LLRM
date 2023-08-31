@@ -4,6 +4,9 @@
 #include "MeshGenerator.h"
 #include "Utill.h"
 #include <chrono>
+#include <iostream>
+#include "glm/gtx/rotate_vector.hpp"
+#include "glm/gtx/quaternion.hpp"
 
 #include "ImGuiSupport.h"
 
@@ -45,6 +48,30 @@ Ruby::SceneId CreateScene()
 
 static bool NeedsResize = false;
 uint32_t Width, Height;
+
+glm::vec3 CamPosition = glm::vec3(0.0f, 0.0f, 0.0f);
+glm::quat CamRotation = glm::quat(glm::vec3(0.0f, 0.0f, 0.0f));
+
+glm::vec3 ForwardVector(glm::quat Rot)
+{
+	glm::vec4 Forward = glm::vec4(0, 0, -1.0f, 0);
+
+	return Rot * Forward;
+}
+
+glm::vec3 RightVector(glm::quat Rot)
+{
+	glm::vec4 Right = glm::vec4(1, 0, 0.0f, 0);
+
+	return Rot * Right;
+}
+
+glm::vec3 UpVector()
+{
+	glm::vec4 Up = glm::vec4(0, 1, 0.0f, 0);
+
+	return Up;
+}
 
 int main()
 {
@@ -121,9 +148,72 @@ int main()
 
 			ImGuiID DockspaceId = ImGui::GetID("DockSpace");
 			ImGui::DockSpace(DockspaceId, ImVec2(0.0f, 0.0f), DockspaceFlags, nullptr);
+
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+			{
+				glm::vec3 Forward = ForwardVector(CamRotation);
+				glm::vec3 Right = RightVector(CamRotation);
+				glm::vec3 Up = UpVector();
+
+				glm::vec3 Movement = glm::vec3(0.0f);
+				float Speed = 0.1f;
+
+				// Movement
+				if (ImGui::IsKeyDown(ImGuiKey_A))
+				{
+					Movement += -1.0f * Right * Speed;
+				}
+				if (ImGui::IsKeyDown(ImGuiKey_D))
+				{
+					Movement += 1.0f * Right * Speed;
+				}
+				if (ImGui::IsKeyDown(ImGuiKey_W))
+				{
+					Movement += 1.0f * Forward * Speed;
+				}
+				if (ImGui::IsKeyDown(ImGuiKey_S))
+				{
+					Movement += -1.0f * Forward * Speed;
+				}
+
+				if (ImGui::IsKeyDown(ImGuiKey_E))
+				{
+					Movement += 1.0f * Up * Speed;
+				}
+				if (ImGui::IsKeyDown(ImGuiKey_Q))
+				{
+					Movement += -1.0f * Up * Speed;
+				}
+
+				ImVec2 DragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+				if(DragDelta.x != 0 || DragDelta.y != 0)
+				{
+					float PitchMovement = -DragDelta.y * 0.005f;
+					float YawMovement = -DragDelta.x * 0.005f;
+
+					glm::quat YawRotation = glm::angleAxis(YawMovement, glm::vec3(0.0f, 1.0f, 0.0f));
+					glm::quat PitchRotation = glm::angleAxis(PitchMovement, RightVector(CamRotation));
+
+					glm::quat NewRot = PitchRotation * YawRotation * CamRotation;
+					bool TopAngle = glm::dot(ForwardVector(NewRot), UpVector()) < std::cos(5.0f * 3.14 / 180.0f);
+					bool BottomAngle = glm::dot(ForwardVector(NewRot), -UpVector()) < std::cos(5.0f * 3.14 / 180.0f);
+					if(!TopAngle || !BottomAngle)
+					{
+						NewRot = YawRotation * CamRotation;
+					}
+
+					CamRotation = NewRot;
+
+					ImGui::ResetMouseDragDelta(ImGuiMouseButton_Right);
+				}
+
+				CamPosition += Movement;
+			}
+
 			ImGui::End();
 
 			ImGui::ShowDemoWindow();
+
 		}
 		EndImGuiFrame();
 		UpdateImGuiViewports();
@@ -133,7 +223,8 @@ int main()
 
 		Ruby::Camera Cam{};
 		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
-		Cam.mPosition.z = 10.0f;
+		Cam.mPosition = CamPosition;
+		Cam.mRotation = CamRotation;
 
 		Ruby::RenderScene(NewScene, Target, glm::ivec2{ Width, Height }, Cam, Swap,
 		[](const llrm::CommandBuffer& Buf)
