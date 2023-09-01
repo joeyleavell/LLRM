@@ -73,6 +73,21 @@ glm::vec3 UpVector()
 	return Up;
 }
 
+void DrawEditorWindows()
+{
+	ImGui::Begin("Properties");
+	{
+		float Values[3] = {CamPosition.x, CamPosition.y, CamPosition.z};
+		ImGui::InputFloat3("Camera Pos", Values);
+
+		glm::vec3 Euler = glm::degrees(glm::eulerAngles(CamRotation));
+		float Values2[3] = { Euler.x, Euler.y, Euler.z};
+		ImGui::InputFloat3("Camera Rot", Values2);
+
+	}
+	ImGui::End();
+}
+
 int main()
 {
 	// Create window
@@ -194,7 +209,7 @@ int main()
 					glm::quat YawRotation = glm::angleAxis(YawMovement, glm::vec3(0.0f, 1.0f, 0.0f));
 					glm::quat PitchRotation = glm::angleAxis(PitchMovement, RightVector(CamRotation));
 
-					glm::quat NewRot = PitchRotation * YawRotation * CamRotation;
+					glm::quat NewRot = YawRotation * PitchRotation * CamRotation;
 					bool TopAngle = glm::dot(ForwardVector(NewRot), UpVector()) < std::cos(5.0f * 3.14 / 180.0f);
 					bool BottomAngle = glm::dot(ForwardVector(NewRot), -UpVector()) < std::cos(5.0f * 3.14 / 180.0f);
 					if(!TopAngle || !BottomAngle)
@@ -212,8 +227,7 @@ int main()
 
 			ImGui::End();
 
-			ImGui::ShowDemoWindow();
-
+			DrawEditorWindows();
 		}
 		EndImGuiFrame();
 		UpdateImGuiViewports();
