@@ -263,6 +263,12 @@ namespace Ruby
 
 		GContext = NewContext;
 
+		CompileRasterProgram("DeferredShade", "DeferredShade", 
+			{
+				{"Test", 0, 1}
+			}, 
+			{}
+		);
 
 		return NewContext;
 	}

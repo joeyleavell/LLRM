@@ -1,5 +1,9 @@
 #include "Lights.h"
 
+#ifndef UBER_SHADOWS
+	#error Must define UBER_SHADOWS to be 0 or 1
+#endif
+
 struct PSIn
 {
     float4 Position : SV_Position;

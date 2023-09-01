@@ -212,59 +212,67 @@ private:
 
 bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCompileResult& OutResult)
 {
+    glslang::TProgram ShaderProgram;
+
+    const char* VertSourcesArray[] = { VertSrc.c_str() };
+    const char* FragSourcesArray[] = { FragSrc.c_str() };
+
+    glslang::TShader VertexShader(EShLanguage::EShLangVertex);
+    glslang::TShader FragmentShader(EShLanguage::EShLangFragment);
+
 
     // Add vertex shader if present
-    glslang::TShader VertexShader(EShLanguage::EShLangVertex);
-    const char* VertSourcesArray[] = { VertSrc.c_str() };
-
-    VertexShader.setEnvInput(glslang::EShSource::EShSourceHlsl, EShLanguage::EShLangVertex, glslang::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_2);
-    VertexShader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
-    VertexShader.setStrings(VertSourcesArray, 1);
-    VertexShader.setEntryPoint("main");
-
-    if (!VertexShader.parse(&DefaultTBuiltInResource,
-        0,
-        EProfile::ECoreProfile,
-        false,
-        false, 
-        EShMessages::EShMsgDefault, 
-        Includer)
-    )
+    if(!VertSrc.empty())
     {
-        std::cerr << VertexShader.getInfoLog() << std::endl;
-        return false;
+        VertexShader.setEnvInput(glslang::EShSource::EShSourceHlsl, EShLanguage::EShLangVertex, glslang::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_2);
+        VertexShader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
+        VertexShader.setStrings(VertSourcesArray, 1);
+        VertexShader.setEntryPoint("main");
+
+        if (!VertexShader.parse(&DefaultTBuiltInResource,
+            0,
+            EProfile::ECoreProfile,
+            false,
+            false,
+            EShMessages::EShMsgDefault,
+            Includer)
+            )
+        {
+            std::cerr << "Vertex compile error: " << VertexShader.getInfoLog() << std::endl;
+            return false;
+        }
+
+        ShaderProgram.addShader(&VertexShader);
     }
 
     // Add fragment shader if present
-    glslang::TShader FragmentShader(EShLanguage::EShLangFragment);
-    const char* FragSourcesArray[] = { FragSrc.c_str() };
-
-    FragmentShader.setEnvInput(glslang::EShSource::EShSourceHlsl, EShLanguage::EShLangFragment, glslang::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_2);
-    FragmentShader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
-    FragmentShader.setStrings(FragSourcesArray, 1);
-    FragmentShader.setEntryPoint("main");
-
-    if (!FragmentShader.parse(&DefaultTBuiltInResource,
-        0,
-        EProfile::ECoreProfile,
-        false,
-        false,
-        EShMessages::EShMsgVulkanRules,
-        Includer)
-    )
+    if(!FragSrc.empty())
     {
-        std::cerr << FragmentShader.getInfoLog() << std::endl;
-        return false;
-    }
+        FragmentShader.setEnvInput(glslang::EShSource::EShSourceHlsl, EShLanguage::EShLangFragment, glslang::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_2);
+        FragmentShader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_2);
+        FragmentShader.setStrings(FragSourcesArray, 1);
+        FragmentShader.setEntryPoint("main");
 
-    glslang::TProgram ShaderProgram;
-    ShaderProgram.addShader(&VertexShader);
-    ShaderProgram.addShader(&FragmentShader);
+        if (!FragmentShader.parse(&DefaultTBuiltInResource,
+            0,
+            EProfile::ECoreProfile,
+            false,
+            false,
+            EShMessages::EShMsgVulkanRules,
+            Includer)
+            )
+        {
+            std::cerr << "Fragment compile error: " << FragmentShader.getInfoLog() << std::endl;
+            return false;
+        }
+
+        ShaderProgram.addShader(&FragmentShader);
+    }
 
     // Link program
     if (!ShaderProgram.link(EShMessages::EShMsgVulkanRules))
     {
-        std::cerr << VertexShader.getInfoLog() << std::endl;
+        std::cerr << "Link error: " << ShaderProgram.getInfoLog() << std::endl;
         return false;
     }
 
@@ -277,8 +285,15 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
     Opts.generateDebugInfo = true;
 
     // Get Spv for each shader stage
-    glslang::GlslangToSpv(*ShaderProgram.getIntermediate(EShLanguage::EShLangVertex), OutResult.OutVertShader, &Opts);
-    glslang::GlslangToSpv(*ShaderProgram.getIntermediate(EShLanguage::EShLangFragment), OutResult.OutFragShader, &Opts);
+    if(!VertSrc.empty())
+    {
+        glslang::GlslangToSpv(*ShaderProgram.getIntermediate(EShLanguage::EShLangVertex), OutResult.OutVertShader, &Opts);
+    }
+
+    if(!FragSrc.empty())
+    {
+        glslang::GlslangToSpv(*ShaderProgram.getIntermediate(EShLanguage::EShLangFragment), OutResult.OutFragShader, &Opts);
+    }
 
     return true;
 }
@@ -286,7 +301,29 @@ bool HlslToSpv(const std::string& VertSrc, const std::string& FragSrc, ShaderCom
 static std::string VertExt = ".vert";
 static std::string FragExt = ".frag";
 
-bool CompileShader(std::string Vert, std::string Frag, ShaderCompileResult& OutResult)
+bool CompileVertShader(std::string Vert, ShaderCompileResult& OutResult)
+{
+    std::string VertSrc{};
+    if (!LoadShaderSource(Vert + VertExt + ".hlsl", VertSrc))
+        return false;
+
+#ifdef LLRM_VULKAN
+    return HlslToSpv(VertSrc, "", OutResult);
+#endif
+}
+
+bool CompileFragShader(std::string Frag, ShaderCompileResult& OutResult)
+{
+    std::string FragSrc{};
+    if (!LoadShaderSource(Frag + FragExt + ".hlsl", FragSrc))
+        return false;
+
+#ifdef LLRM_VULKAN
+    return HlslToSpv("", FragSrc, OutResult);
+#endif
+}
+
+bool CompileRasterProgram(std::string Vert, std::string Frag, ShaderCompileResult& OutResult)
 {
     std::string VertSrc{}, FragSrc{};
     if (!LoadShaderSource(Vert + VertExt + ".hlsl", VertSrc))
@@ -326,6 +363,102 @@ namespace Ruby
         return "";
     }
 
+    enum ShaderType
+    {
+	    Vertex,
+        Fragment
+    };
+
+    void GenerateUberPerms(std::string ShaderName, ShaderType Type, std::vector<UberVar> Ubers, uint32_t UberIndex, std::vector<std::pair<std::string, uint32_t>> UberValues, std::vector<std::string>& OutShaders)
+    {
+        if(Ubers.size() == 0)
+        {
+	        // Copy over single shader
+            OutShaders.push_back(ShaderName);
+        }
+        else
+        {
+            // Generate uber permutations
+            if (UberIndex == Ubers.size())
+            {
+                // Terminal, generate shader
+
+            	const std::string& Ext = (Type == Vertex) ? VertExt : FragExt;
+
+                std::filesystem::path Root = GetProgramPath();
+                std::filesystem::path Shaders = Root.parent_path().parent_path() / "Shaders";
+
+                std::ostringstream NewUberSrc;
+                std::ostringstream NewUberFileName;
+                NewUberFileName << ShaderName;
+                for (const auto& UberVal : UberValues)
+                {
+                    NewUberSrc << std::string("#define ") << UberVal.first << " " << UberVal.second << "\n";
+                    NewUberFileName << std::string("_") << UberVal.second;
+                }
+
+                NewUberSrc << std::string("#include \"") << (ShaderName + Ext + ".hlsl") << "\"\n";
+
+                // Create uber permutation file
+                std::filesystem::path Path = Shaders / (NewUberFileName.str() + Ext + ".hlsl");
+                std::ofstream OutStream(Path);
+                OutStream << NewUberSrc.str();
+
+                OutShaders.push_back(NewUberFileName.str());
+            }
+            else
+            {
+                UberVar& CurUber = Ubers[UberIndex];
+                for (uint32_t Value = CurUber.MinValue; Value <= CurUber.MaxValue; Value++)
+                {
+                    std::vector<std::pair<std::string, uint32_t>> NewValues = UberValues;
+                    NewValues.push_back(std::make_pair(CurUber.Name, Value));
+                    GenerateUberPerms(ShaderName, Type, Ubers, UberIndex + 1, NewValues, OutShaders);
+                }
+            }
+        }
+
+    }
+
+    bool CompileRasterProgram(std::string VertName, std::string FragName, std::vector<UberVar> VertUbers, std::vector<UberVar> FragUbers)
+    {
+        std::filesystem::path Root = Ruby::GContext.CompiledShaders;
+
+        // Generate uber perms
+        std::vector<std::string> OutVertShaders;
+        std::vector<std::string> OutFragShaders;
+
+    	GenerateUberPerms(VertName, Vertex, VertUbers, 0, {}, OutVertShaders);
+        GenerateUberPerms(FragName, Fragment, FragUbers, 0, {}, OutFragShaders);
+
+        // Match the ubers
+        for(const std::string& VertUber : OutVertShaders)
+        {
+            for (const std::string& FragUber : OutFragShaders)
+            {
+                std::filesystem::path VertPath = Root / (VertUber + VertExt + CompiledShaderExt);
+                std::filesystem::path FragPath = Root / (FragUber + FragExt + CompiledShaderExt);
+
+                ShaderCompileResult Result{};
+                if (!CompileRasterProgram(VertUber, FragUber, Result))
+                {
+                    // Error
+                    return false;
+                }
+
+                std::filesystem::create_directories(VertPath.parent_path());
+                std::filesystem::create_directories(FragPath.parent_path());
+
+                // Cache the compiled shaders, only write out first vertex shader
+                WriteBinaryFile(VertPath.string(), Result.OutVertShader);
+            	WriteBinaryFile(FragPath.string(), Result.OutFragShader);
+            }
+        }
+
+        return true;
+
+    }
+
     llrm::ShaderProgram LoadRasterShader(std::string VertName, std::string FragName)
     {
         std::filesystem::path Root = Ruby::GContext.CompiledShaders;
@@ -336,7 +469,7 @@ namespace Ruby
 
         if(gForceBuildShaders || (!std::filesystem::exists(VertPath) || !std::filesystem::exists(FragPath)))
         {
-            if(!CompileShader(VertName, FragName, Result))
+            if(!CompileRasterProgram(VertName, FragName, Result))
             {
                 // Error
                 return nullptr;

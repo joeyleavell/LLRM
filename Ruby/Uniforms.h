@@ -4,7 +4,8 @@
 
 struct CameraVertexUniforms
 {
-	glm::mat4 mViewProjection;
+	alignas(4) glm::mat4 mViewProjection;
+	float Test[100000];
 };
 
 struct ModelVertexUniforms

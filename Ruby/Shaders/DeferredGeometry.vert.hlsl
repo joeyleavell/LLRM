@@ -1,6 +1,7 @@
 cbuffer CameraUniforms : register(b0, space0)
 {
     float4x4 ViewProjection;
+    float Uniforms[10000];
 }
 
 cbuffer ModelUniforms : register(b0, space1)
