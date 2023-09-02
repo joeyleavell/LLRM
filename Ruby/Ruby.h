@@ -8,12 +8,39 @@
 #include "Uniforms.h"
 #include "glm/gtx/quaternion.hpp"
 
+struct DeferredShadeParameters
+{
+	bool UseShadows = true;
+
+	bool operator==(const DeferredShadeParameters& Other) const 
+	{
+		return UseShadows == Other.UseShadows;
+	}
+};
+
+namespace std
+{
+	template<>
+	struct hash<DeferredShadeParameters>
+	{
+		std::size_t operator()(const DeferredShadeParameters& Obj) const noexcept
+		{
+			return size_t(Obj.UseShadows);
+		}
+	};
+}
+
 namespace Ruby
 {
 
 	typedef uint32_t SceneId;
 	typedef uint32_t ObjectId;
 	typedef uint32_t LightId;
+
+	struct RenderSettings
+	{
+		bool mShadowsEnabled = false;
+	};
 
 	enum class RenderingAPI
 	{
@@ -145,7 +172,10 @@ namespace Ruby
 
 		// Pipelines
 		llrm::Pipeline		 mDeferredGeoPipe;
-		llrm::Pipeline		 mDeferredShadePipe;
+
+		std::unordered_map<DeferredShadeParameters, llrm::Pipeline> mDeferredShadePipelines;
+		llrm::Pipeline DeferredShadePipeline(bool UseShadows);
+
 
 		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
@@ -268,6 +298,7 @@ namespace Ruby
 		glm::ivec2 ViewportSize, 
 		const Camera& Camera, 
 		const SwapChain& Target,
+		const RenderSettings& Settings,
 		std::function<void(const llrm::CommandBuffer&)> PostTonemap = [](const llrm::CommandBuffer& Buf){}
 	);
 

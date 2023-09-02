@@ -121,6 +121,38 @@ namespace Ruby
 		}
 	}
 
+	llrm::Pipeline RubyContext::DeferredShadePipeline(bool UseShadows)
+	{
+		DeferredShadeParameters Params = { UseShadows };
+		if (mDeferredShadePipelines.contains(Params))
+		{
+			return mDeferredShadePipelines[Params];
+		}
+		else
+		{
+			// Create string
+			std::string UberFrag = "DeferredShade_" + std::to_string(uint32_t(UseShadows));
+			llrm::Pipeline NewPipe = llrm::CreatePipeline({
+				LoadRasterShader("DeferredShade", UberFrag),
+				GContext.mDeferredShadeRG,
+				{GContext.mLightsResourceLayout, GContext.mDeferredShadeRl},
+				sizeof(PosUV),
+				{
+					{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
+					{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
+				},
+				llrm::PipelineRenderPrimitive::TRIANGLES,
+				{{false}},
+				{false},
+				0
+			});
+
+			mDeferredShadePipelines[Params] = NewPipe;
+
+			return NewPipe;
+		}
+	}
+
 	RubyContext CreateContext(const ContextParams& Params)
 	{  
 		RubyContext NewContext{};
@@ -229,21 +261,6 @@ namespace Ruby
 			0
 		});
 
-		NewContext.mDeferredShadePipe = llrm::CreatePipeline({
-			LoadRasterShader("DeferredShade", "DeferredShade"),
-			NewContext.mDeferredShadeRG,
-			{NewContext.mLightsResourceLayout, NewContext.mDeferredShadeRl},
-			sizeof(PosUV),
-			{
-				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mPos)},
-				{llrm::VertexAttributeFormat::Float2, offsetof(PosUV, mUV)}
-			},
-			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}},
-			{false},
-			0
-		});
-
 		NewContext.mShadowMapPipe = llrm::CreatePipeline({
 			LoadRasterShader("DepthRender", "DepthRender"),
 			NewContext.mShadowMapRG,
@@ -265,9 +282,10 @@ namespace Ruby
 
 		CompileRasterProgram("DeferredShade", "DeferredShade", 
 			{
-				{"Test", 0, 1}
 			}, 
-			{}
+			{
+			{"UBER_SHADOWS", 0, 1}
+			}
 		);
 
 		return NewContext;
@@ -812,6 +830,7 @@ glm::transpose(CamProj * CamView)
 		const llrm::RenderGraph& DstGraph, 
 		const llrm::Pipeline& DstPipeline,
 		const llrm::ResourceSet& DstResources,
+		const RenderSettings& Settings,
 		std::function<void(const llrm::CommandBuffer&)> PostTonemap
 	)
 	{
@@ -856,11 +875,13 @@ glm::transpose(CamProj * CamView)
 			if(IsLightObject(Obj.mId))
 			{
 				const Light& Light = GContext.mLights[Obj.mReferenceId];
-				if(Light.mCastShadows)
+
+				if(Settings.mShadowsEnabled && Light.mCastShadows)
 				{
 					LightFrustums[Obj.mId] = ShadowMapFrustum;
 					ShadowMapFrustum++;
 				}
+
 				if(Light.mType == LightType::Directional)
 				{
 					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
@@ -873,13 +894,17 @@ glm::transpose(CamProj * CamView)
 					NumDirLights++;
 
 					// Update shadow information
-					glm::mat4 ViewProj = glm::transpose(CreateDirectionalVPMatrix(Obj.mRotation, CamView, Camera.mProjection));
-					uint32_t BaseIndex = LightFrustums[Obj.mId] * 4;
-					glm::mat4 LightViewProj = ViewProj;
-					Resources.mShadowFrustumsData[BaseIndex + 0] = LightViewProj[0];
-					Resources.mShadowFrustumsData[BaseIndex + 1] = LightViewProj[1];
-					Resources.mShadowFrustumsData[BaseIndex + 2] = LightViewProj[2];
-					Resources.mShadowFrustumsData[BaseIndex + 3] = LightViewProj[3];
+					if(Settings.mShadowsEnabled)
+					{
+						glm::mat4 ViewProj = glm::transpose(CreateDirectionalVPMatrix(Obj.mRotation, CamView, Camera.mProjection));
+						uint32_t BaseIndex = LightFrustums[Obj.mId] * 4;
+						glm::mat4 LightViewProj = ViewProj;
+						Resources.mShadowFrustumsData[BaseIndex + 0] = LightViewProj[0];
+						Resources.mShadowFrustumsData[BaseIndex + 1] = LightViewProj[1];
+						Resources.mShadowFrustumsData[BaseIndex + 2] = LightViewProj[2];
+						Resources.mShadowFrustumsData[BaseIndex + 3] = LightViewProj[3];
+					}
+
 				}
 				else if(Light.mType == LightType::Spot)
 				{
@@ -904,11 +929,14 @@ glm::transpose(CamProj * CamView)
 		);
 
 		// Update frustums data texture
-		llrm::WriteTexture(Resources.mShadowMapFrustums,
-			llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
-			MAX_FRUSTUMS * 4, 1, 0,
-			Resources.mShadowFrustumsData.size() * sizeof(glm::vec4), Resources.mShadowFrustumsData.data()
-		);
+		if(Settings.mShadowsEnabled)
+		{
+			llrm::WriteTexture(Resources.mShadowMapFrustums,
+				llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
+				MAX_FRUSTUMS * 4, 1, 0,
+				Resources.mShadowFrustumsData.size() * sizeof(glm::vec4), Resources.mShadowFrustumsData.data()
+			);
+		}
 
 		// Update lights
 		llrm::UpdateTextureResource(Resources.mLightResources, { Resources.mLightDataTextureView }, 0);
@@ -933,26 +961,28 @@ glm::transpose(CamProj * CamView)
 			//llrm::TransitionTexture(DstCmd, Resources.mShadowMaps, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::DepthStencilAttachment, 0, 10);
 
 			// Render shadow maps
-			for (uint32_t Object : Scene.mObjects)
+			if(Settings.mShadowsEnabled)
 			{
-				Ruby::Object& Obj = GetObject(Object);
-
-				if (IsLightObject(Obj.mId))
+				for (uint32_t Object : Scene.mObjects)
 				{
-					Light& Light = GetLight(Obj.mReferenceId);
-					if(Light.mCastShadows)
+					Ruby::Object& Obj = GetObject(Object);
+					if (IsLightObject(Obj.mId))
 					{
-						uint32_t BaseFrustum = LightFrustums[Obj.mId];
+						Light& Light = GetLight(Obj.mReferenceId);
+						if (Light.mCastShadows)
+						{
+							uint32_t BaseFrustum = LightFrustums[Obj.mId];
 
-						RenderShadowMap(Scene,
-							Resources,
-							BaseFrustum,
-							DstCmd,
-							{ 1024, 1024 },
-							Obj,
-							CamView,
-							Camera.mProjection
-						);
+							RenderShadowMap(Scene,
+								Resources,
+								BaseFrustum,
+								DstCmd,
+								{ 1024, 1024 },
+								Obj,
+								CamView,
+								Camera.mProjection
+							);
+						}
 					}
 				}
 			}
@@ -1001,7 +1031,7 @@ glm::transpose(CamProj * CamView)
 				llrm::SetViewport(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 				llrm::SetScissor(DstCmd, 0, 0, ViewportSize.x, ViewportSize.y);
 
-				llrm::BindPipeline(DstCmd, GContext.mDeferredShadePipe);
+				llrm::BindPipeline(DstCmd, GContext.DeferredShadePipeline(Settings.mShadowsEnabled));
 				llrm::BindResources(DstCmd, { Resources.mLightResources, Resources.mDeferredShadeRes });
 				llrm::DrawVertexBufferIndexed(DstCmd, Resources.mFullScreenQuadVbo, Resources.mFullScreenQuadIbo, 6);
 			}
@@ -1030,6 +1060,7 @@ glm::transpose(CamProj * CamView)
 		glm::ivec2 ViewportSize,
 		const Camera& Camera,
 		const SwapChain& Target,
+		const RenderSettings& Settings,
 		std::function<void(const llrm::CommandBuffer&)> PostTonemap
 	)
 	{
@@ -1052,6 +1083,7 @@ glm::transpose(CamProj * CamView)
 				Target.mTonemapGraph, 
 				Target.mTonemapPipeline,
 				Target.mTonemapResources,
+				Settings,
 				PostTonemap
 			);
 

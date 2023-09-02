@@ -49,8 +49,9 @@ PSOut main(PSIn Input)
         float4 ShadowProperties = LightDataTexture.Load(int3(LightDataIndex + 1, 0, 0));
 
     	bool LightEffectsSurface = true;
-        bool CastShadows = ShadowProperties.x > 0.0;
 
+#if UBER_SHADOWS
+    	bool CastShadows = ShadowProperties.x > 0.0;
     	if(CastShadows)
         {
             uint FrustumBase = (uint) ShadowProperties.y;
@@ -72,6 +73,7 @@ PSOut main(PSIn Input)
                 LightEffectsSurface = false;
             }
         }
+#endif
 
         if(LightEffectsSurface)
         {

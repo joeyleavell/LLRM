@@ -73,6 +73,8 @@ glm::vec3 UpVector()
 	return Up;
 }
 
+Ruby::RenderSettings Settings = { false };
+
 void DrawEditorWindows()
 {
 	ImGui::Begin("Properties");
@@ -86,6 +88,17 @@ void DrawEditorWindows()
 
 	}
 	ImGui::End();
+
+	ImGui::Begin("RenderSettings");
+	{
+		if(ImGui::CollapsingHeader("Lighting"))
+		{
+			ImGui::Checkbox("Shadows", &Settings.mShadowsEnabled);
+		}
+	}
+	ImGui::End();
+
+	ImGui::ShowDemoWindow();
 }
 
 int main()
@@ -240,7 +253,7 @@ int main()
 		Cam.mPosition = CamPosition;
 		Cam.mRotation = CamRotation;
 
-		Ruby::RenderScene(NewScene, Target, glm::ivec2{ Width, Height }, Cam, Swap,
+		Ruby::RenderScene(NewScene, Target, glm::ivec2{ Width, Height }, Cam, Swap, Settings,
 		[](const llrm::CommandBuffer& Buf)
 		{
 			RecordImGuiCmds(Buf);
