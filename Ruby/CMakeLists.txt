@@ -1,6 +1,7 @@
 set(RUBY_TARGET Ruby)
 
 option(BUILD_RUBY_EXAMPLES "Whether to build the ruby examples" ON)
+set(RUBY_UNITS "Meters" CACHE STRING "Defines the units of measurement for ruby")
 
 FetchContent_Declare(
     glslang
@@ -27,12 +28,19 @@ target_sources(${RUBY_TARGET} PRIVATE
     "ShaderManager.h" 
     "Utill.h"
     "Uniforms.h"
-  "Vertex.h" "Shaders/Lights.hlsl" "Shaders/BRDF.hlsl")
+    "Vertex.h"
+)
 
 target_link_libraries(${RUBY_TARGET} PUBLIC glm)
 target_link_libraries(${RUBY_TARGET} PRIVATE glslang)
 target_link_libraries(${RUBY_TARGET} PRIVATE SPIRV)
 target_link_libraries(${RUBY_TARGET} PUBLIC ${LLRM_TARGET})
+
+if(${RUBY_UNITS} STREQUAL "Meters")
+    target_compile_definitions(${RUBY_TARGET} PRIVATE RUBY_UNITS=0)
+else()
+    message(FATAL_ERROR "Unknown units")
+endif()
 
 install(TARGETS ${RUBY_TARGET})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Shaders DESTINATION .)

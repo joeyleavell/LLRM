@@ -13,6 +13,33 @@ namespace Ruby
 {
 	RubyContext GContext;
 
+	// Must define RUBY_UNITS
+#ifndef RUBY_UNITS
+	#error Must define RUBY_UNITS, see documentation for details. (0=meters, 1=centimeters)
+#endif
+
+	// The units of measurement
+	const DistanceUnits gUnits =
+#if RUBY_UNITS == 0
+	DistanceUnits::Meters;
+	const float TO_METERS = 1;
+#elif RUBY_UNITS == 1
+	DistanceUnits::Centimeters;
+	const float TO_METERS = 1.0f / 100;
+#endif
+
+	// Converts meters to user-specified units
+	constexpr float ToUser(float Distance)
+	{
+		return Distance * 1.0f / TO_METERS;
+	}
+
+	// Converts user-specified units to meters
+	constexpr float ToMeters(float Distance)
+	{
+		return Distance * TO_METERS;
+	}
+
 #if LLRM_VULKAN
 	RenderingAPI GAPI = RenderingAPI::Vulkan;
 #endif
@@ -482,7 +509,7 @@ namespace Ruby
 		Target = CreateRenderTarget(NewWidth, NewHeight);
 	}
 
-	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows)
+	Light& CreateLight(LightType Type, glm::vec3 Color, float Intensity, LightUnit Units, bool CastShadows)
 	{
 		Light Result;
 
@@ -490,12 +517,28 @@ namespace Ruby
 		Result.mType = Type;
 		Result.mColor = Color;
 		Result.mIntensity = Intensity;
+		Result.mIntensityUnit = Units;
 		Result.mCastShadows = CastShadows;
 
 		GContext.mNextLightId++;
 		GContext.mLights.emplace(Result.mId, Result);
 
-		return Result.mId;
+		return GContext.mLights[Result.mId];
+	}
+
+	Light& CreateSpotLight(
+		glm::vec3 Color, 
+		float Intensity, 
+		LightUnit Units,
+		float InnerAngle, float OuterAngle, 
+		bool CastShadows
+	)
+	{
+		Light& Light = CreateLight(LightType::Spot, Color, Intensity, Units, CastShadows);
+		Light.InnerAngle = glm::radians(InnerAngle);
+		Light.OuterAngle = glm::radians(OuterAngle);
+
+		return Light;
 	}
 
 	void DestroyLight(LightId Light)
@@ -590,18 +633,6 @@ namespace Ruby
 		Result.mRotation = Rotation;
 
 		Result.mObjectResources = llrm::CreateResourceSet({ GContext.mObjectResourceLayout });
-
-		// Create shadow map
-		/*Result.mShadowDepthAttachment = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
-			llrm::AttachmentUsage::ShaderRead, 1024, 1024, llrm::TEXTURE_USAGE_RT | llrm::TEXTURE_USAGE_SAMPLE);
-		Result.mShadowDepthAttachmentRenderPassView = llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT | llrm::STENCIL_ASPECT);
-		Result.mShadowDepthAttachmentResourceView	= llrm::CreateTextureView(Result.mShadowDepthAttachment, llrm::DEPTH_ASPECT);*/
-
-		/*Result.mShadowFbo = llrm::CreateFrameBuffer({
-			1024, 1024,
-			{Result.mShadowDepthAttachmentRenderPassView},
-			GContext.mShadowMapRG
-		});*/
 
 		GContext.mNextObjectId++;
 		GContext.mObjects.emplace(Result.mId, Result);
@@ -934,7 +965,9 @@ glm::transpose(CamProj * CamView)
 			if(IsLightObject(Obj.mId))
 			{
 				const Light& Light = GContext.mLights[Obj.mReferenceId];
+				glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
 
+				// Assign next available shadow frustum if casting shadows
 				if(Settings.mShadowsEnabled && Light.mCastShadows)
 				{
 					LightFrustums[Obj.mId] = ShadowMapFrustum;
@@ -943,11 +976,10 @@ glm::transpose(CamProj * CamView)
 
 				if(Light.mType == LightType::Directional)
 				{
-					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
-
-					Resources.mLightData[LightDataIndex + 0] = glm::vec4((float)LightType::Directional, Light.mColor);
+					Resources.mLightData[LightDataIndex + 0] = glm::vec4((float)Light.mType, Light.mColor);
 					Resources.mLightData[LightDataIndex + 1] = glm::vec4(Light.mCastShadows, LightFrustums[Obj.mId], 0.0f, 0.0f);
 					Resources.mLightData[LightDataIndex + 2] = glm::vec4(Direction.x, Direction.y, Direction.z, Light.mIntensity);
+
 					LightDataIndex += 3;
 
 					NumDirLights++;
@@ -967,17 +999,36 @@ glm::transpose(CamProj * CamView)
 				}
 				else if(Light.mType == LightType::Spot)
 				{
-					glm::vec4 Direction = BuildTransform({}, Obj.mRotation, { 1, 1, 1 }) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
+					float Intensity = Light.mIntensity;
 
-					/*Lights.mSpotLights[Lights.mNumSpotLights].mPosition = Obj.mPosition;
-					Lights.mSpotLights[Lights.mNumSpotLights].mColor = Light.mColor;
-					Lights.mSpotLights[Lights.mNumSpotLights].mDirection = { Direction.x, Direction.y, Direction.z };
-					Lights.mSpotLights[Lights.mNumSpotLights].mIntensity = Light.mIntensity;
-					Lights.mNumSpotLights++;*/
+					if(Light.mIntensityUnit == LightUnit::Lumen)
+					{
+						// TODO: Convert to candela
+					}
+
+					// Shader will divide by user units, but we need shader output to be in candela/m^2
+					Intensity *= (ToUser(1) * ToUser(1));
+
+					// Inner and outer angle must satisfy conditions:
+					// Outer angle >= inner angle
+					// Outer angle <= pi radians, Inner angle <= pi radians
+					// Divide angles by 2 so user doesn't have to specify "half angles"
+					float Inner2 = Light.InnerAngle / 2.0f, Outer2 = Light.OuterAngle / 2.0f;
+					float InnerAngle = 1.0f / (glm::cos(Inner2) - glm::cos(Outer2));
+					float OuterAngle = glm::cos(Outer2);
+
+					Resources.mLightData[LightDataIndex + 0] = glm::vec4((float) LightType::Spot, Light.mColor);
+					Resources.mLightData[LightDataIndex + 1] = glm::vec4(Light.mCastShadows, LightFrustums[Obj.mId], 0.0f, 0.0f); // Last 2 reserved
+					Resources.mLightData[LightDataIndex + 2] = glm::vec4(Direction.x, Direction.y, Direction.z, Intensity);
+					Resources.mLightData[LightDataIndex + 3] = glm::vec4(Obj.mPosition, 0.0f); // Fourth unused
+					Resources.mLightData[LightDataIndex + 4] = glm::vec4(InnerAngle, OuterAngle, 0.0f, 0.0f);
+					LightDataIndex += 5;
+
+					NumSpotLights++;
 				}
 			}
 		}
-		Resources.mLightData[0] = glm::vec4((float) NumDirLights);
+		Resources.mLightData[0] = glm::vec4((float) (NumDirLights + NumSpotLights), 0.0f, 0.0f, 0.0f);
 
 		// Material processing:
 		// 1) Update material shader uniforms.
@@ -992,7 +1043,7 @@ glm::transpose(CamProj * CamView)
 			llrm::UpdateUniformBuffer(Material.second.mMaterialResources, 0, &MaterialParams, sizeof(MaterialParams));
 		}
 
-		// Write light data texture
+		// Write light data texture. TODO: Are light textures too slow? Use uniforms instead?
 		llrm::WriteTexture(Resources.mLightDataTexture,
 			llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ShaderRead,
 			MaxImageSize, 1, 0,

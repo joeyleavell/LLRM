@@ -42,7 +42,7 @@ if(LLRM_IMGUI)
     target_sources(imgui PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_draw.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp      
         ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_tables.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_widgets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_glfw.cpp
@@ -50,7 +50,7 @@ if(LLRM_IMGUI)
         PUBLIC FILE_SET HEADERS TYPE HEADERS FILES BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/imgui
         imgui.h
         imgui_internal.h
-     "Editor/Editor.cpp")
+     )
 
     if(LLRM_BUILD_VULKAN)
         target_sources(imgui PRIVATE
@@ -92,7 +92,7 @@ if(LLRM_BUILD_TEST)
     )
     FetchContent_MakeAvailable(glslang)
 
-    add_executable (${LLRM_TEST_TARGET} "test.cpp" "shadercompile.h" "shadercompile.cpp" "Editor/Editor.cpp")
+    add_executable (${LLRM_TEST_TARGET} "test.cpp" "shadercompile.h" "shadercompile.cpp")
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE glslang)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE SPIRV)
     target_link_libraries(${LLRM_TEST_TARGET} PRIVATE ${LLRM_TARGET})

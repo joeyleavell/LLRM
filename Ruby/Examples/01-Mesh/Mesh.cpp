@@ -33,9 +33,9 @@ Ruby::SceneId CreateScene()
 		float AngleY = rand2 * (Max - Min) + Min;
 
 		// Create directional light facing (0.0, 0.0, -1.0)
-		Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f / Lights * Scaler, true);
-		Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { AngleX, AngleY, 0.0f });
-		Ruby::AddObject(NewScene, DirLight);
+		//Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f / Lights * Scaler, true);
+		//Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { AngleX, AngleY, 0.0f });
+		//Ruby::AddObject(NewScene, DirLight);
 	}
 
 	return NewScene;

@@ -58,7 +58,7 @@ PSOut main(PSIn Input)
     float3 Radiance = float(0.0);
 
     float4 LightCounts = LightDataTexture.Load(int3(0, 0, 0));
-    uint LightDataIndex = 1;
+	uint LightDataIndex = 1;
     for (uint Light = 0; Light < LightCounts.x; Light++)
     {
         float4 LightType = LightDataTexture.Load(int3(LightDataIndex + 0, 0, 0));
@@ -106,11 +106,33 @@ PSOut main(PSIn Input)
 
                 Radiance += CalcDirectionalLightRadiance(DirLight, Mat, Normal, V, NDotV);
             }
+
+            if((uint) LightType.x == 1) // Light type == spot light
+            {
+                float4 DirIntensity = LightDataTexture.Load(int3(LightDataIndex + 2, 0, 0));
+                float4 SpotPosition = LightDataTexture.Load(int3(LightDataIndex + 3, 0, 0));
+            	float4 SpotParams = LightDataTexture.Load(int3(LightDataIndex + 4, 0, 0));
+
+            	SpotLight Spot;
+                Spot.Position = SpotPosition.xyz;
+                Spot.Color = LightColor;
+                Spot.Direction = DirIntensity.xyz;
+            	Spot.Intensity = DirIntensity.w;
+                Spot.InnerAngle = SpotParams.x;
+                Spot.OuterAngle = SpotParams.y;
+
+                Radiance += CalcSpotLightRadiance(Spot, Mat, Normal, Position, V, NDotV);
+            }
+
         }
 
         if ((uint) LightType.x == 0) // Light type == directional
         {
             LightDataIndex += 3;
+        }
+        if ((uint) LightType.x == 1) // Light type == spot
+        {
+            LightDataIndex += 5;
         }
     }
 

@@ -23,14 +23,30 @@ Ruby::SceneId CreateScene()
 	DefaultMaterial.Albedo = glm::vec3(1.0f, 0.0f, 1.0f);
 
 	// Create object in front of camera
-	Ruby::Mesh& CubeMesh = Ruby::CreateMesh(TesselateRectPrism({ 10, 10, 10 }), DefaultMaterial.mId);
-	gCube = Ruby::CreateMeshObject(CubeMesh, { 0, 0, -30.0f }, { 0, 0, 0 });
+	Ruby::Mesh& CubeMesh = Ruby::CreateMesh(TesselateRectPrism({ 0.1f, 0.1f, 0.1f }), DefaultMaterial.mId);
+	gCube = Ruby::CreateMeshObject(CubeMesh, { 0, 0, -0.3f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, gCube);
 
 	// Create floor 
-	Ruby::Mesh& Floor = Ruby::CreateMesh(TesselateRectPrism({ 1000, 1, 1000 }));
-	Ruby::ObjectId FloorObj = Ruby::CreateMeshObject(Floor, { 0, -20.0f, 0.0f }, { 0, 0, 0 });
+	Ruby::Mesh& Floor = Ruby::CreateMesh(TesselateRectPrism({ 10, 0.01, 10 }));
+	Ruby::ObjectId FloorObj = Ruby::CreateMeshObject(Floor, { 0, -0.2f, 0.0f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, FloorObj);
+
+	Ruby::Light& Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 0.0f, 1.0f, 0.0f }, 10.0f, Ruby::LightUnit::Lumen, true);
+	Ruby::ObjectId DirLight1 = Ruby::CreateLightObject(Dir.mId, { 0.0f, 0.3f, 0.0f}, { -45.0f, 0.0f, 0.0f });
+	Ruby::AddObject(NewScene, DirLight1);
+
+	for(uint32_t x = 0; x < 40; x++)
+	{
+		for(uint32_t y = 0; y < 40; y++)
+		{
+			float xPos = x * 0.01f, zPos = y * 0.01f;
+			// Create directional light facing (0.0, 0.0, -1.0)
+			Ruby::Light& Spot = Ruby::CreateSpotLight({ 1.0f, 1.0f, 1.0f }, 1.0f, Ruby::LightUnit::Lumen, 1.0f, 1.0);
+			Ruby::ObjectId DirLight = Ruby::CreateLightObject(Spot.mId, { xPos, 0.3f, zPos }, { -90.0f, 0.0f, 0.0f });
+			Ruby::AddObject(NewScene, DirLight);
+		}
+	}
 
 	uint32_t Lights = 1;
 	float Scaler = 0.1f;
@@ -44,11 +60,6 @@ Ruby::SceneId CreateScene()
 		float AngleY = rand2 * (Max - Min) + Min;
 
 	}
-
-	// Create directional light facing (0.0, 0.0, -1.0)
-	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 100.0f, true);
-	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -10.0f, 0.0f, 0.0f });
-	Ruby::AddObject(NewScene, DirLight);
 
 	return NewScene;
 }
@@ -191,7 +202,7 @@ int main()
 				glm::vec3 Up = UpVector();
 
 				glm::vec3 Movement = glm::vec3(0.0f);
-				float Speed = 0.1f;
+				float Speed = 0.001f;
 
 				// Movement
 				if (ImGui::IsKeyDown(ImGuiKey_A))
@@ -256,7 +267,7 @@ int main()
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
 
 		Ruby::Camera Cam{};
-		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 1500.0f);
+		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.01f, 1500.0f);
 		Cam.mPosition = CamPosition;
 		Cam.mRotation = CamRotation;
 

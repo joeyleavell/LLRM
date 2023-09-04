@@ -32,7 +32,6 @@ namespace std
 
 namespace Ruby
 {
-
 	const uint32_t INVALID_ID = std::numeric_limits<uint32_t>::max();
 
 	typedef uint32_t SceneId;
@@ -43,6 +42,16 @@ namespace Ruby
 	{
 		bool mShadowsEnabled = false;
 	};
+
+	enum class DistanceUnits
+	{
+		Meters,
+		Millimeters,
+		Centimeters
+	};
+
+	// The units of measurement
+	extern const DistanceUnits gUnits;
 
 	enum class RenderingAPI
 	{
@@ -149,13 +158,29 @@ namespace Ruby
 		Spot = 1
 	};
 
+	enum class LightUnit
+	{
+		Lumen,
+		Candela,
+		Lux
+	};
+
 	struct Light
 	{
 		uint32_t  mId;
 		LightType mType;
 		glm::vec3 mColor;
-		float	  mIntensity;
+		float	  mIntensity; 
+
+		// Directional lights use lux, punctual (point & spot) lights used candelas or lumens.
+		// Lumens will be automatically converted to candelas depending on light angle.
+		LightUnit mIntensityUnit;
+
 		bool	  mCastShadows;
+
+		// Punctual spotlight parameters
+		float InnerAngle = glm::radians(20.0f);
+		float OuterAngle = glm::radians(40.0f);
 	};
 
 	struct RubyContext
@@ -198,7 +223,6 @@ namespace Ruby
 
 		std::unordered_map<DeferredShadeParameters, llrm::Pipeline> mDeferredShadePipelines;
 		llrm::Pipeline DeferredShadePipeline(bool UseShadows);
-
 
 		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextMaterialId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
@@ -276,7 +300,17 @@ namespace Ruby
 	void ResizeRenderTarget(RenderTarget& Target, uint32_t Width, uint32_t Height);
 
 	// Light
-	LightId CreateLight(LightType Type, glm::vec3 Color, float Intensity, bool CastShadows);
+	Light& CreateLight(LightType Type, glm::vec3 Color, float Intensity, LightUnit Units, bool CastShadows);
+
+	// Inner and outer angles in degrees
+	Light& CreateSpotLight(
+		glm::vec3 Color, 
+		float Intensity,
+		LightUnit Units = LightUnit::Lumen,
+		float InnerAngle = glm::radians(20.0f), float OuterAngle = glm::radians(40.0f),
+		bool CastShadows = false
+	);
+
 	void DestroyLight(LightId Light);
 	Light& GetLight(LightId Light);
 
