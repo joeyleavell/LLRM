@@ -19,29 +19,22 @@ struct SpotLight
 	float	Intensity;
 };
 
-float3 CalcDirectionalLight(DirectionalLight Light, Material Mat, float3 Position, float3 Normal, float3 View)
+// Returns the step-wise solution to the standard reflectance rendering equation
+float3 LightRadiance(float3 BRDF, float3 Radiance, float3 NDotL)
 {
+	return BRDF * Radiance * NDotL;
+}
 
+// Calculates the radiance for a directional light using a BRDF, units are in candelas/m^2
+float3 CalcDirectionalLightRadiance(DirectionalLight Light, Material Mat, float3 Normal, float3 V, float NDotV)
+{
 	float3 L = normalize(-Light.Direction);
-	float3 V = normalize(View - Position);
 	float3 H = normalize(V + L);
 	float NDotL = max(dot(Normal, L), 0.0f);
+	float NDotH = max(dot(Normal, H), 0.0f);
 
-	float3 F0 = float3(0.1);
-	F0 = lerp(F0, Mat.Albedo, Mat.Metallic);
-	float3 ReflectanceRatio = FresnelSchlick(max(dot(V, Normal), 0.0), F0);
-
-	float NDF = DistributionGGX(Normal, H, Mat.Roughness);       
-	float G   = GeometrySmith(Normal, V, L, Mat.Roughness);
-
-	float3 numerator    = NDF * G * ReflectanceRatio;
-	float denominator = 4.0 * max(dot(Normal, V), 0.0) * NDotL + 0.0001;
-	float3 specular     = numerator / denominator;  
-
-	float3 RefractanceRatio = 1.0f - ReflectanceRatio;
-	RefractanceRatio *= 1.0f - Mat.Metallic;
-
-	return (RefractanceRatio * Mat.Albedo / PI + specular) * Light.Intensity * Light.Color * NDotL;
+	float3 BRDF = CookTorrenceBRDF(Mat, NDotL, NDotV, NDotH);
+	return LightRadiance(BRDF, Light.Intensity * Light.Color, NDotL);
 }
 
 float4x4 ExtractViewProjMatrix(Texture2D<float4> Tex, uint FrustumIndex)

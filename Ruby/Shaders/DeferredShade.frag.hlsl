@@ -43,11 +43,17 @@ PSOut main(PSIn Input)
     float3 Normal = Normal.Sample(Nearest, Input.UV);
     float3 RMAO   = RMAOTex.Sample(Nearest, Input.UV);
 
+    // Used throughout
+    float3 V = normalize(ViewPosition - Position);
+    float NDotV = max(dot(Normal, V), 0.0f);
+
     // Create pixel material
 	Material Mat;
     Mat.Roughness = RMAO.x;
     Mat.Metallic = RMAO.y;
     Mat.Albedo = Albedo.rgb;
+    Mat.F0 = float3(0.1); // Assume F0 of 0.1 for dielectrics, possibly make configurable?
+	Mat.F0 = lerp(Mat.F0, Mat.Albedo, Mat.Metallic); // If metallic, F0 becomes the Albedo
 
     float3 Radiance = float(0.0);
 
@@ -97,7 +103,8 @@ PSOut main(PSIn Input)
                 DirLight.Color = LightColor;
                 DirLight.Direction = DirIntensity.xyz;
             	DirLight.Intensity = DirIntensity.w;
-                Radiance += CalcDirectionalLight(DirLight, Mat, Position, Normal, ViewPosition);
+
+                Radiance += CalcDirectionalLightRadiance(DirLight, Mat, Normal, V, NDotV);
             }
         }
 
