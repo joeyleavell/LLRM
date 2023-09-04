@@ -17,6 +17,13 @@ struct DeferredShadeResources
 	alignas(4) glm::vec3 ViewPosition;
 };
 
+struct ShaderUniform_Material
+{
+	alignas(4) float Roughness{};
+	alignas(4) float Metallic{};
+	alignas(16) glm::vec3 Albedo{};
+};
+
 struct ShadowLightUniforms
 {
 	glm::mat4 mViewProjection;

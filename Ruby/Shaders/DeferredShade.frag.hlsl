@@ -26,7 +26,8 @@ SamplerState           Nearest             : register(t0, space1);
 Texture2D<float4>      Albedo              : register(t1, space1);
 Texture2D<float4>      Position            : register(t2, space1);
 Texture2D<float4>      Normal              : register(t3, space1);
-cbuffer SceneUniforms : register(b4, space1)
+Texture2D<float4>      RMAOTex             : register(t4, space1);
+cbuffer SceneUniforms : register(b5, space1)
 {
     float3 ViewPosition;
 }
@@ -40,6 +41,13 @@ PSOut main(PSIn Input)
     // Sample geometry
     float4 Albedo = Albedo.Sample(Nearest, Input.UV);
     float3 Normal = Normal.Sample(Nearest, Input.UV);
+    float3 RMAO   = RMAOTex.Sample(Nearest, Input.UV);
+
+    // Create pixel material
+	Material Mat;
+    Mat.Roughness = RMAO.x;
+    Mat.Metallic = RMAO.y;
+    Mat.Albedo = Albedo.rgb;
 
     float3 Radiance = float(0.0);
 
@@ -89,7 +97,7 @@ PSOut main(PSIn Input)
                 DirLight.Color = LightColor;
                 DirLight.Direction = DirIntensity.xyz;
             	DirLight.Intensity = DirIntensity.w;
-                Radiance += CalcDirectionalLight(DirLight, Albedo.rgb, Position, Normal, ViewPosition);
+                Radiance += CalcDirectionalLight(DirLight, Mat, Position, Normal, ViewPosition);
             }
         }
 

@@ -16,13 +16,19 @@ Ruby::SceneId CreateScene()
 {
 	Ruby::SceneId NewScene = Ruby::CreateScene();
 
+	// Create material
+	Ruby::Material& DefaultMaterial = Ruby::CreateMaterial();
+	DefaultMaterial.Roughness = 0.4f;
+	DefaultMaterial.Metallic = 0.0f;
+	DefaultMaterial.Albedo = glm::vec3(1.0f, 0.0f, 1.0f);
+
 	// Create object in front of camera
-	Ruby::Mesh CubeMesh = Ruby::CreateMesh(TesselateRectPrism({ 10, 10, 10 }));
+	Ruby::Mesh& CubeMesh = Ruby::CreateMesh(TesselateRectPrism({ 10, 10, 10 }), DefaultMaterial.mId);
 	gCube = Ruby::CreateMeshObject(CubeMesh, { 0, 0, -30.0f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, gCube);
 
 	// Create floor 
-	Ruby::Mesh Floor = Ruby::CreateMesh(TesselateRectPrism({ 1000, 1, 1000 }));
+	Ruby::Mesh& Floor = Ruby::CreateMesh(TesselateRectPrism({ 1000, 1, 1000 }));
 	Ruby::ObjectId FloorObj = Ruby::CreateMeshObject(Floor, { 0, -20.0f, 0.0f }, { 0, 0, 0 });
 	Ruby::AddObject(NewScene, FloorObj);
 
@@ -40,7 +46,7 @@ Ruby::SceneId CreateScene()
 	}
 
 	// Create directional light facing (0.0, 0.0, -1.0)
-	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 0.0f, 0.0f }, 100.0f, true);
+	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 100.0f, true);
 	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -10.0f, 0.0f, 0.0f });
 	Ruby::AddObject(NewScene, DirLight);
 

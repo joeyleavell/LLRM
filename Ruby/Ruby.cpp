@@ -216,17 +216,30 @@ namespace Ruby
 
 		NewContext.mDeferredShadeRl = llrm::CreateResourceLayout({
 {
-				{4, llrm::ShaderStage::Fragment, sizeof(DeferredShadeResources), 1}
+				{5, llrm::ShaderStage::Fragment, sizeof(DeferredShadeResources), 1}
 			},
 			{
-			{1, llrm::ShaderStage::Fragment, 1}, // Albedo
-			{2, llrm::ShaderStage::Fragment, 1}, // Position
-			{3, llrm::ShaderStage::Fragment, 1}  // Normal
+				{1, llrm::ShaderStage::Fragment, 1}, // Albedo
+				{2, llrm::ShaderStage::Fragment, 1}, // Position
+				{3, llrm::ShaderStage::Fragment, 1}, // Normal
+				{4, llrm::ShaderStage::Fragment, 1}  // Roughness, metallic, ambient occlusion, unused
 			},
 			{
 				{0, llrm::ShaderStage::Fragment, 1} // Albedo
 			}
 		});
+
+		NewContext.mMaterialLayout = llrm::CreateResourceLayout({{
+				{0, llrm::ShaderStage::Fragment, sizeof(ShaderUniform_Material), 1}
+			},
+			{},
+			{}
+		});
+
+		// Create default material
+		ShaderUniform_Material DefaultMaterial = { 0.8f, 0.0f, glm::vec3(0.18f) };
+		NewContext.mDefaultMaterial = llrm::CreateResourceSet({ NewContext.mMaterialLayout });
+		llrm::UpdateUniformBuffer(NewContext.mDefaultMaterial, 0, &DefaultMaterial, sizeof(DefaultMaterial), false);
 
 		// Create render graphs
 		NewContext.mDeferredGeoRG = llrm::CreateRenderGraph({
@@ -234,17 +247,18 @@ namespace Ruby
 				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Albedo
 				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Position
 				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Normal
+				{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}, // Roughness, metallic, ambient occlusion, unused
 				{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentFormat::D24_UNORM_S8_UINT} // Depth
 			},
-			{{{0, 1, 2, 3}}}
+			{{{0, 1, 2, 3, 4}}}
 		});
 		NewContext.mDeferredShadeRG = llrm::CreateRenderGraph({
-{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // HDR buffer
-{{{0}}}
+			{{llrm::AttachmentUsage::ColorAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::RGBA16F_Float}}, // HDR buffer
+			{{{0}}}
 		});
 		NewContext.mShadowMapRG = llrm::CreateRenderGraph({
-	{{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::D24_UNORM_S8_UINT}},
-	{{{0}}}
+			{{llrm::AttachmentUsage::DepthStencilAttachment, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentFormat::D24_UNORM_S8_UINT}},
+			{{{0}}}
 		});
 
 		// Set global compiled shaders location so we can load shaders
@@ -254,14 +268,14 @@ namespace Ruby
 		NewContext.mDeferredGeoPipe = llrm::CreatePipeline({
 			LoadRasterShader("DeferredGeometry", "DeferredGeometry"),
 			NewContext.mDeferredGeoRG,
-			{NewContext.mSceneResourceLayout, NewContext.mObjectResourceLayout},
+			{NewContext.mSceneResourceLayout, NewContext.mObjectResourceLayout, NewContext.mMaterialLayout},
 			sizeof(MeshVertex),
 			{
 				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mPosition)},
 				{llrm::VertexAttributeFormat::Float3, offsetof(MeshVertex, mNormal)}
 			},
 			llrm::PipelineRenderPrimitive::TRIANGLES,
-			{{false}, {false}, {false}},
+			{{false}, {false}, {false}, {false}},
 			{true},
 			0
 		});
@@ -403,14 +417,16 @@ namespace Ruby
 		Target.mDeferredAlbedo = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
 		Target.mDeferredPosition = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
 		Target.mDeferredNormal = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
+		Target.mDeferredRMAO = llrm::CreateTexture(llrm::AttachmentFormat::RGBA16F_Float, llrm::AttachmentUsage::ShaderRead, Width, Height, llrm::TEXTURE_USAGE_SAMPLE | llrm::TEXTURE_USAGE_RT, 1);
 		Target.mDeferredAlbedoView = llrm::CreateTextureView(Target.mDeferredAlbedo, llrm::AspectFlags::COLOR_ASPECT);
 		Target.mDeferredPositionView = llrm::CreateTextureView(Target.mDeferredPosition, llrm::AspectFlags::COLOR_ASPECT);
 		Target.mDeferredNormalView = llrm::CreateTextureView(Target.mDeferredNormal, llrm::AspectFlags::COLOR_ASPECT);
+		Target.mDeferredRMAOView = llrm::CreateTextureView(Target.mDeferredRMAO, llrm::AspectFlags::COLOR_ASPECT);
 
 		// Create deferred framebuffers
 		Target.mDeferredGeoFB = llrm::CreateFrameBuffer({
 			Width, Height,
-			{Target.mDeferredAlbedoView, Target.mDeferredPositionView, Target.mDeferredNormalView, Target.mDepthView},
+			{Target.mDeferredAlbedoView, Target.mDeferredPositionView, Target.mDeferredNormalView, Target.mDeferredRMAOView, Target.mDepthView},
 			GContext.mDeferredGeoRG
 		});
 
@@ -430,6 +446,7 @@ namespace Ruby
 		llrm::DestroyTexture(Target.mDeferredAlbedo);
 		llrm::DestroyTexture(Target.mDeferredPosition);
 		llrm::DestroyTexture(Target.mDeferredNormal);
+		llrm::DestroyTexture(Target.mDeferredRMAO);
 
 		llrm::DestroyFrameBuffer(Target.mDeferredGeoFB);
 		llrm::DestroyFrameBuffer(Target.mDeferredShadeFB);
@@ -439,12 +456,14 @@ namespace Ruby
 		llrm::DestroyTextureView(Target.mDeferredAlbedoView);
 		llrm::DestroyTextureView(Target.mDeferredPositionView);
 		llrm::DestroyTextureView(Target.mDeferredNormalView);
+		llrm::DestroyTextureView(Target.mDeferredRMAOView);
 
 		Target.mHDRColor = nullptr;
 		Target.mDepth = nullptr;
 		Target.mDeferredAlbedo = nullptr;
 		Target.mDeferredPosition = nullptr;
 		Target.mDeferredNormal = nullptr;
+		Target.mDeferredRMAO = nullptr;
 
 		Target.mDeferredGeoFB = nullptr;
 		Target.mDeferredShadeFB = nullptr;
@@ -454,6 +473,7 @@ namespace Ruby
 		Target.mDeferredAlbedoView = nullptr;
 		Target.mDeferredPositionView = nullptr;
 		Target.mDeferredNormalView = nullptr;
+		Target.mDeferredRMAOView = nullptr;
 	}
 
 	void ResizeRenderTarget(RenderTarget& Target, uint32_t NewWidth, uint32_t NewHeight)
@@ -488,7 +508,7 @@ namespace Ruby
 		return GContext.mLights[Light];
 	}
 
-	Mesh CreateMesh(const Tesselation& Tesselation)
+	Mesh& CreateMesh(const Tesselation& Tesselation, uint32_t MatId)
 	{
 		Mesh Result;
 
@@ -496,11 +516,12 @@ namespace Ruby
 		Result.mVbo = llrm::CreateVertexBuffer(Tesselation.mVerts.size() * sizeof(MeshVertex), Tesselation.mVerts.data());
 		Result.mIbo = llrm::CreateIndexBuffer(Tesselation.mIndicies.size() * sizeof(uint32_t), Tesselation.mIndicies.data());
 		Result.mIndexCount = Tesselation.mIndicies.size();
+		Result.mMat = MatId;
 
 		GContext.mNextMeshId++;
 		GContext.mMeshes.emplace(Result.mId, Result);
 
-		return Result;
+		return GContext.mMeshes[Result.mId];
 	}
 
 	void DestroyMesh(const Mesh& Mesh)
@@ -514,6 +535,32 @@ namespace Ruby
 	Mesh& GetMesh(uint32_t MeshId)
 	{
 		return GContext.mMeshes[MeshId];
+	}
+
+	Material& CreateMaterial()
+	{
+		Material Result;
+
+		Result.mId = GContext.mNextMaterialId;
+		Result.mMaterialResources = llrm::CreateResourceSet({
+			GContext.mMaterialLayout
+		});
+
+		GContext.mNextMaterialId++;
+		GContext.mMaterials.emplace(Result.mId, Result);
+
+		return GContext.mMaterials[Result.mId];
+	}
+
+	void DestroyMaterial(const Material& Material)
+	{
+		llrm::DestroyVertexBuffer(Material.mMaterialResources);
+		GContext.mMaterials.erase(Material.mId);
+	}
+
+	Material& GetMaterial(uint32_t MaterialId)
+	{
+		return GContext.mMaterials[MaterialId];
 	}
 
 	ObjectId CreateMeshObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation)
@@ -846,6 +893,7 @@ glm::transpose(CamProj * CamView)
 
 		SceneResources& Resources = GContext.mResources[Scene.mId];
 
+		// Update camera uniform
 		glm::mat4 CamView = glm::inverse(BuildTransformQuat(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
 		UpdateCameraUniforms(Resources.mSceneResources, CamView, Camera.mProjection);
 
@@ -860,6 +908,12 @@ glm::transpose(CamProj * CamView)
 		{
 			Resources.mLightData.resize(MaxImageSize);
 		}
+
+		// Object processing:
+		// 1) Assign shadow frustums to lights
+		// 2) Build light data
+		// 3) Object object shader uniforms
+		// TODO: Ensure all of these steps are multithreading safe. What happens if we call RenderScene() with different views on the same scene?
 
 		uint32_t ShadowMapFrustum = 0;
 		uint32_t LightDataIndex = 1;
@@ -923,8 +977,20 @@ glm::transpose(CamProj * CamView)
 				}
 			}
 		}
-
 		Resources.mLightData[0] = glm::vec4((float) NumDirLights);
+
+		// Material processing:
+		// 1) Update material shader uniforms.
+		//	TODO: Ensure this step is multithreading safe
+		for (auto& Material : GContext.mMaterials)
+		{
+			ShaderUniform_Material MaterialParams = {
+				Material.second.Roughness,
+				Material.second.Metallic,
+				Material.second.Albedo
+			};
+			llrm::UpdateUniformBuffer(Material.second.mMaterialResources, 0, &MaterialParams, sizeof(MaterialParams));
+		}
 
 		// Write light data texture
 		llrm::WriteTexture(Resources.mLightDataTexture,
@@ -957,6 +1023,7 @@ glm::transpose(CamProj * CamView)
 		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredAlbedoView }, 1);
 		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredPositionView }, 2);
 		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredNormalView }, 3);
+		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredRMAOView }, 4);
 
 		DeferredShadeResources ShadeRes = { Camera.mPosition};
 		llrm::UpdateUniformBuffer(Resources.mDeferredShadeRes, 0, &ShadeRes, sizeof(ShadeRes));
@@ -998,10 +1065,12 @@ glm::transpose(CamProj * CamView)
 			llrm::TransitionTexture(DstCmd, RT.mDeferredAlbedo, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 			llrm::TransitionTexture(DstCmd, RT.mDeferredPosition, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 			llrm::TransitionTexture(DstCmd, RT.mDeferredNormal, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
+			llrm::TransitionTexture(DstCmd, RT.mDeferredRMAO, llrm::AttachmentUsage::ShaderRead, llrm::AttachmentUsage::ColorAttachment);
 
 			// Deferred geometry stage
 			std::vector<llrm::ClearValue> ClearValues = {
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 1.0f},
+				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
 				{llrm::ClearType::Float, 0.0, 0.0, 0.0, 0.0f},
 				{llrm::ClearType::Float, 1.0f}
@@ -1020,7 +1089,11 @@ glm::transpose(CamProj * CamView)
 					{
 						Ruby::Mesh& Mesh = GetMesh(Obj.mReferenceId);
 
-						llrm::BindResources(DstCmd, { Resources.mSceneResources, Obj.mObjectResources });
+						llrm::ResourceSet MaterialResources = GContext.mDefaultMaterial;
+						if (IsValidId(Mesh.mMat))
+							MaterialResources = GetMaterial(Mesh.mMat).mMaterialResources;
+
+						llrm::BindResources(DstCmd, { Resources.mSceneResources, Obj.mObjectResources, MaterialResources});
 						llrm::DrawVertexBufferIndexed(DstCmd, Mesh.mVbo, Mesh.mIbo, Mesh.mIndexCount);
 					}
 				}

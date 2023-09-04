@@ -33,6 +33,8 @@ namespace std
 namespace Ruby
 {
 
+	const uint32_t INVALID_ID = std::numeric_limits<uint32_t>::max();
+
 	typedef uint32_t SceneId;
 	typedef uint32_t ObjectId;
 	typedef uint32_t LightId;
@@ -47,6 +49,7 @@ namespace Ruby
 		Vulkan
 	};
 
+	// Resources that are shared between all views of a scene
 	struct SceneResources
 	{
 		// Full screen quad
@@ -85,12 +88,27 @@ namespace Ruby
 		glm::mat4 mProjection;
 	};
 
+	struct Material
+	{
+		// Don't touch this ID or bad things happen. This is assigned to the material on creation.
+		uint32_t mId{};
+
+		// Material parameters
+		float Roughness = 1.0f;
+		float Metallic = 1.0f;
+		glm::vec3 Albedo = glm::vec3(0.18f);
+
+		// Material resources
+		llrm::ResourceSet mMaterialResources;
+	};
+
 	struct Mesh
 	{
 		uint32_t mId;
 		llrm::VertexBuffer mVbo;
 		llrm::IndexBuffer mIbo;
 		uint32_t mIndexCount;
+		uint32_t mMat = INVALID_ID;
 	};
 
 	enum class ObjectType
@@ -151,6 +169,7 @@ namespace Ruby
 
 		std::unordered_map<uint32_t, Light> mLights;
 		std::unordered_map<uint32_t, Mesh> mMeshes;
+		std::unordered_map<uint32_t, Material> mMaterials;
 		std::unordered_map<uint32_t, Object> mObjects;
 		std::unordered_map<uint32_t, Scene> mScenes;
 
@@ -161,6 +180,7 @@ namespace Ruby
 		llrm::ResourceLayout mObjectResourceLayout;
 		llrm::ResourceLayout mLightObjectResourceLayout;
 		llrm::ResourceLayout mDeferredShadeRl;
+		llrm::ResourceLayout mMaterialLayout;
 
 		// Shadow map generation
 		llrm::RenderGraph	 mShadowMapRG;
@@ -173,11 +193,14 @@ namespace Ruby
 		// Pipelines
 		llrm::Pipeline		 mDeferredGeoPipe;
 
+		// Default material
+		llrm::ResourceSet	 mDefaultMaterial;
+
 		std::unordered_map<DeferredShadeParameters, llrm::Pipeline> mDeferredShadePipelines;
 		llrm::Pipeline DeferredShadePipeline(bool UseShadows);
 
 
-		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextSceneId = 0, mNextLightId = 0;
+		uint32_t mNextMeshId = 0, mNextObjectId = 0, mNextMaterialId = 0, mNextSceneId = 0, mNextLightId = 0;
 	};
 
 	struct SwapChain
@@ -200,9 +223,11 @@ namespace Ruby
 		llrm::Texture		 mDeferredAlbedo;
 		llrm::Texture		 mDeferredPosition;
 		llrm::Texture		 mDeferredNormal;
+		llrm::Texture		 mDeferredRMAO;
 		llrm::TextureView	 mDeferredAlbedoView;
 		llrm::TextureView	 mDeferredPositionView;
 		llrm::TextureView	 mDeferredNormalView;
+		llrm::Texture		 mDeferredRMAOView;
 		llrm::FrameBuffer	 mDeferredGeoFB;
 
 		// Deferred shading stage
@@ -233,6 +258,11 @@ namespace Ruby
 		std::vector<uint32_t> mIndicies;
 	};
 
+	inline bool IsValidId(uint32_t Id)
+	{
+		return Id != INVALID_ID;
+	}
+
 	RubyContext CreateContext(const ContextParams& Params);
 	void DestroyContext(const RubyContext& Context);
 	void SetContext(const RubyContext& Context);
@@ -251,9 +281,14 @@ namespace Ruby
 	Light& GetLight(LightId Light);
 
 	// Mesh
-	Mesh CreateMesh(const Tesselation& Tesselation);
+	Mesh& CreateMesh(const Tesselation& Tesselation, uint32_t MatId = INVALID_ID);
 	void DestroyMesh(const Mesh& Mesh);
 	Mesh& GetMesh(uint32_t MeshId);
+
+	// Material
+	Material& CreateMaterial();
+	void DestroyMaterial(const Material& Mesh);
+	Material& GetMaterial(uint32_t MaterialId);
 
 	// Object
 	ObjectId CreateMeshObject(const Mesh& Mesh, glm::vec3 Position, glm::vec3 Rotation);

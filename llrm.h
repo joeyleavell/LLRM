@@ -438,7 +438,7 @@ namespace llrm
 	void GetFrameBufferSize(FrameBuffer Fbo, uint32_t& Width, uint32_t& Height) ;
 
 	// Resource set operations
-	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize) ;
+	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize, bool Dynamic = true);
 	void UpdateTextureResource(ResourceSet Resources, std::vector<TextureView> Images, uint32_t Binding) ;
 	void UpdateSamplerResource(ResourceSet Resources, Sampler Samp, uint32_t Binding);
 

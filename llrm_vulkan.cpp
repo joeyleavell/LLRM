@@ -1827,48 +1827,59 @@ namespace llrm
 		Height = VkFbo->AttachmentHeight;
 	}
 
-	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize)
+	void UpdateUniformBuffer(ResourceSet Resources, uint32_t BufferIndex, void* Data, uint64_t DataSize, bool Dynamic)
 	{
-		VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
 		VulkanResourceSet* VkRes = static_cast<VulkanResourceSet*>(Resources);
 
-		if (!VkSwap->bInsideFrame)
+		std::vector<uint32_t> UpdateIndicies{};
+		if (Dynamic)
 		{
-			//GLog->critical("Must update constant buffer within the limits of a swap chain frame");
-			return;
+			VulkanSwapChain* VkSwap = GVulkanContext.CurrentSwapChain;
+			if (!VkSwap->bInsideFrame)
+			{
+				//GLog->critical("Must update constant buffer within the limits of a swap chain frame");
+				return;
+			}
+			UpdateIndicies.push_back(VkSwap->CurrentFrame);
+		}
+		else
+			for (uint32_t Index = 0; Index < MAX_FRAMES_IN_FLIGHT; Index++) // Probably called once at beginning of program, update all buffers
+				UpdateIndicies.push_back(Index);
+
+		for(uint32_t Index : UpdateIndicies)
+		{
+			VkDeviceMemory& Mem = VkRes->ConstantBuffers[BufferIndex].Memory[Index];
+
+			// Data is guaranteed available since this frame is guaranteed to have previous operations complete by cpu fence in BeginFrame
+			void* MappedData;
+			vkMapMemory(GVulkanContext.Device, Mem, 0, DataSize, 0, &MappedData);
+			{
+				std::memcpy(MappedData, Data, DataSize);
+			}
+			vkUnmapMemory(GVulkanContext.Device, Mem); // Memory is host-coherent, so no flush necessary
+
+			// Update descriptor set memory
+			const auto& ConstBuf = VkRes->ConstantBuffers[BufferIndex];
+
+			VkDescriptorBufferInfo BufInfo{};
+			BufInfo.buffer = ConstBuf.Buffers[Index];
+			BufInfo.offset = 0;
+			BufInfo.range = DataSize;
+
+			VkWriteDescriptorSet BufferWrite{};
+			BufferWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			BufferWrite.dstSet = VkRes->DescriptorSets[Index];
+			BufferWrite.dstBinding = ConstBuf.Binding;
+			BufferWrite.dstArrayElement = 0; // TODO: support multiple array elements
+			BufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			BufferWrite.descriptorCount = 1;
+			BufferWrite.pBufferInfo = &BufInfo;
+			BufferWrite.pImageInfo = nullptr;
+			BufferWrite.pTexelBufferView = nullptr;
+
+			vkUpdateDescriptorSets(GVulkanContext.Device, 1, &BufferWrite, 0, nullptr);
 		}
 
-		VkDeviceMemory& Mem = VkRes->ConstantBuffers[BufferIndex].Memory[VkSwap->CurrentFrame];
-
-		// Data is guaranteed available since this frame is guaranteed to have previous operations complete by cpu fence in BeginFrame
-		void* MappedData;
-		vkMapMemory(GVulkanContext.Device, Mem, 0, DataSize, 0, &MappedData);
-		{
-			std::memcpy(MappedData, Data, DataSize);
-		}
-		vkUnmapMemory(GVulkanContext.Device, Mem); // Memory is host-coherent, so no flush necessary
-
-		// Update descriptor set memory
-		const auto& ConstBuf = VkRes->ConstantBuffers[BufferIndex];
-		uint32_t CurrentImage = VkSwap->AcquiredImageIndex;
-
-		VkDescriptorBufferInfo BufInfo{};
-		BufInfo.buffer = ConstBuf.Buffers[CurrentImage];
-		BufInfo.offset = 0;
-		BufInfo.range = DataSize;
-
-		VkWriteDescriptorSet BufferWrite{};
-		BufferWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		BufferWrite.dstSet = VkRes->DescriptorSets[CurrentImage];
-		BufferWrite.dstBinding = ConstBuf.Binding;
-		BufferWrite.dstArrayElement = 0; // TODO: support multiple array elements
-		BufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		BufferWrite.descriptorCount = 1;
-		BufferWrite.pBufferInfo = &BufInfo;
-		BufferWrite.pImageInfo = nullptr;
-		BufferWrite.pTexelBufferView = nullptr;
-
-		vkUpdateDescriptorSets(GVulkanContext.Device, 1, &BufferWrite, 0, nullptr);
 	}
 
 	void UpdateTextureResource(ResourceSet Resources, std::vector<TextureView> Images, uint32_t Binding)
