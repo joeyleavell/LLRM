@@ -37,11 +37,12 @@ Ruby::SceneId CreateScene()
 		float AngleX = rand1 * (Max - Min) + Min;
 		float AngleY = rand2 * (Max - Min) + Min;
 
-		// Create directional light facing (0.0, 0.0, -1.0)
-		Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 1.0f, 1.0f }, 1.0f / Lights * Scaler, true);
-		Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { AngleX, AngleY, 0.0f });
-		Ruby::AddObject(NewScene, DirLight);
 	}
+
+	// Create directional light facing (0.0, 0.0, -1.0)
+	Ruby::LightId Dir = Ruby::CreateLight(Ruby::LightType::Directional, { 1.0f, 0.0f, 0.0f }, 100.0f, true);
+	Ruby::ObjectId DirLight = Ruby::CreateLightObject(Dir, {}, { -10.0f, 0.0f, 0.0f });
+	Ruby::AddObject(NewScene, DirLight);
 
 	return NewScene;
 }
@@ -84,22 +85,22 @@ void DrawEditorWindows()
 
 		glm::vec3 Euler = glm::degrees(glm::eulerAngles(CamRotation));
 		float Values2[3] = { Euler.x, Euler.y, Euler.z};
-		ImGui::InputFloat3("Camera Rot", Values2);
+		ImGui::InputFloat3("Camera Rot", Values2); 
 
 	}
 	ImGui::End();
 
 	ImGui::Begin("RenderSettings");
 	{
-		if(ImGui::CollapsingHeader("Lighting"))
-		{
+		if(ImGui::CollapsingHeader("Lighting"))  
+		{ 
 			ImGui::Checkbox("Shadows", &Settings.mShadowsEnabled);
 		}
 	}
 	ImGui::End();
 
 	ImGui::ShowDemoWindow();
-}
+} 
 
 int main()
 {
@@ -249,7 +250,7 @@ int main()
 		glfwGetFramebufferSize(Wnd, &Width, &Height);
 
 		Ruby::Camera Cam{};
-		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 150.0f);
+		Cam.mProjection = Ruby::BuildPerspective(70.0f, Width / (float)Height, 0.1f, 1500.0f);
 		Cam.mPosition = CamPosition;
 		Cam.mRotation = CamRotation;
 

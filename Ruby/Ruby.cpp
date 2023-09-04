@@ -7,6 +7,8 @@
 #include "glm/vec2.hpp"
 #include "Vertex.h"
 
+#define SHADOW_MAP_RESOLUTION uint32_t(1024)
+
 namespace Ruby
 {
 	RubyContext GContext;
@@ -213,14 +215,17 @@ namespace Ruby
 		}, {} });
 
 		NewContext.mDeferredShadeRl = llrm::CreateResourceLayout({
-{}, {
+{
+				{4, llrm::ShaderStage::Fragment, sizeof(DeferredShadeResources), 1}
+			},
+			{
 			{1, llrm::ShaderStage::Fragment, 1}, // Albedo
 			{2, llrm::ShaderStage::Fragment, 1}, // Position
 			{3, llrm::ShaderStage::Fragment, 1}  // Normal
-		},
-		{
-			{0, llrm::ShaderStage::Fragment, 1} // Albedo
-		}
+			},
+			{
+				{0, llrm::ShaderStage::Fragment, 1} // Albedo
+			}
 		});
 
 		// Create render graphs
@@ -673,7 +678,7 @@ namespace Ruby
 
 	void CreateShadowResources(SceneResources& Res)
 	{
-		uint32_t Frustums = llrm::GetCaps().MaxImageArrayLayers;
+		uint32_t Frustums = std::min(llrm::GetCaps().MaxImageArrayLayers, (uint32_t)10);
 		uint32_t Size = Frustums * 4;
 		Res.mShadowMapFrustums = llrm::CreateTexture(llrm::AttachmentFormat::RGBA32F_Float, 
 			llrm::AttachmentUsage::ShaderRead, 
@@ -685,7 +690,7 @@ namespace Ruby
 
 		Res.mShadowMaps = llrm::CreateTexture(llrm::AttachmentFormat::D24_UNORM_S8_UINT,
 			llrm::AttachmentUsage::ShaderRead, 
-			1024, 1024,
+			SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
 			llrm::TEXTURE_USAGE_RT | llrm::TEXTURE_USAGE_SAMPLE,
 			Frustums
 		);
@@ -703,7 +708,7 @@ namespace Ruby
 				Frustum, 1);
 
 			llrm::FrameBuffer ShadowMapFbo = llrm::CreateFrameBuffer({
-				1024, 1024,
+				SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
 				{ShadowMapTextureView},
 				GContext.mShadowMapRG
 			});
@@ -844,7 +849,7 @@ glm::transpose(CamProj * CamView)
 		glm::mat4 CamView = glm::inverse(BuildTransformQuat(Camera.mPosition, Camera.mRotation, { 1, 1, 1 }));
 		UpdateCameraUniforms(Resources.mSceneResources, CamView, Camera.mProjection);
 
-		uint32_t MAX_FRUSTUMS = llrm::GetCaps().MaxImageArrayLayers;
+		uint32_t MAX_FRUSTUMS = std::min(llrm::GetCaps().MaxImageArrayLayers, (uint32_t)10);
 		uint32_t MaxImageSize = llrm::GetCaps().MaxTextureSize;
 		if(Resources.mShadowFrustumsData.size() != MAX_FRUSTUMS * 4)
 		{
@@ -953,6 +958,9 @@ glm::transpose(CamProj * CamView)
 		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredPositionView }, 2);
 		llrm::UpdateTextureResource(Resources.mDeferredShadeRes, { RT.mDeferredNormalView }, 3);
 
+		DeferredShadeResources ShadeRes = { Camera.mPosition};
+		llrm::UpdateUniformBuffer(Resources.mDeferredShadeRes, 0, &ShadeRes, sizeof(ShadeRes));
+
 		// Render the scene
 		llrm::Begin(DstCmd);
 		{
@@ -977,7 +985,7 @@ glm::transpose(CamProj * CamView)
 								Resources,
 								BaseFrustum,
 								DstCmd,
-								{ 1024, 1024 },
+								{ SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION },
 								Obj,
 								CamView,
 								Camera.mProjection

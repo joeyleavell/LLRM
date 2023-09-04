@@ -12,6 +12,11 @@ struct ModelVertexUniforms
 	glm::mat4 mTransform;
 };
 
+struct DeferredShadeResources
+{
+	alignas(4) glm::vec3 ViewPosition;
+};
+
 struct ShadowLightUniforms
 {
 	glm::mat4 mViewProjection;

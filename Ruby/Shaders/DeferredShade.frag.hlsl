@@ -1,4 +1,4 @@
-#include "Lights.h"
+#include "Lights.hlsl"
 
 #ifndef UBER_SHADOWS
 	#error Must define UBER_SHADOWS to be 0 or 1
@@ -26,6 +26,10 @@ SamplerState           Nearest             : register(t0, space1);
 Texture2D<float4>      Albedo              : register(t1, space1);
 Texture2D<float4>      Position            : register(t2, space1);
 Texture2D<float4>      Normal              : register(t3, space1);
+cbuffer SceneUniforms : register(b4, space1)
+{
+    float3 ViewPosition;
+}
 
 PSOut main(PSIn Input)
 {
@@ -77,14 +81,15 @@ PSOut main(PSIn Input)
 
         if(LightEffectsSurface)
         {
-            if((uint) LightType.x == 0) // Light type == directional
+            if((uint) LightType.x == 0) // Light type == directional 
             {
+                // Lux (lumens/m^2)
                 float4 DirIntensity = LightDataTexture.Load(int3(LightDataIndex + 2, 0, 0));
                 DirectionalLight DirLight;
                 DirLight.Color = LightColor;
                 DirLight.Direction = DirIntensity.xyz;
             	DirLight.Intensity = DirIntensity.w;
-                Radiance += CalcDirectionalLight(DirLight, Albedo, Position, Normal);
+                Radiance += CalcDirectionalLight(DirLight, Albedo.rgb, Position, Normal, ViewPosition);
             }
         }
 

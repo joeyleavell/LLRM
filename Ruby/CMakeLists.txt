@@ -27,7 +27,7 @@ target_sources(${RUBY_TARGET} PRIVATE
     "ShaderManager.h" 
     "Utill.h"
     "Uniforms.h"
-  "Vertex.h" "Shaders/Lights.h")
+  "Vertex.h" "Shaders/Lights.hlsl")
 
 target_link_libraries(${RUBY_TARGET} PUBLIC glm)
 target_link_libraries(${RUBY_TARGET} PRIVATE glslang)
