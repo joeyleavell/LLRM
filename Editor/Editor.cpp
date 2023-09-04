@@ -36,9 +36,9 @@ Ruby::SceneId CreateScene()
 	Ruby::ObjectId DirLight1 = Ruby::CreateLightObject(Dir.mId, { 0.0f, 0.3f, 0.0f}, { -45.0f, 0.0f, 0.0f });
 	Ruby::AddObject(NewScene, DirLight1);
 
-	for(uint32_t x = 0; x < 40; x++)
+	for(uint32_t x = 0; x < 20; x++)
 	{
-		for(uint32_t y = 0; y < 40; y++)
+		for(uint32_t y = 0; y < 20; y++)
 		{
 			float xPos = x * 0.01f, zPos = y * 0.01f;
 			// Create directional light facing (0.0, 0.0, -1.0)

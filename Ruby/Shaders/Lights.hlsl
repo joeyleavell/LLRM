@@ -64,6 +64,9 @@ float3 CalcSpotLightRadiance(
 )
 {
 	float Atten = CalcSpotAttenuation(Position, Light.Position, Light.Direction, Light.InnerAngle, Light.OuterAngle);
+	if(Atten <= 0.0f)
+		return float3(0.0f);
+
 	float Radiance = Light.Intensity * Light.Color * Atten; // Attenuation is 1/m^2, this becomes candelas/m^2
 
 	float3 L = normalize(Light.Position - Position);
